@@ -290,22 +290,33 @@ class Obsidian():
 
         return self._safe_call(call_fn)
 
-    def get_files_with_property(self, property_name: str) -> Any:
-        """Get all files that contain a specific frontmatter property.
+    def get_files_with_property(self, property_name: str, property_value: str = None) -> Any:
+        """Get all files that contain a specific frontmatter property, optionally filtered by value.
 
         Args:
             property_name: Name of the frontmatter property to search for
+            property_value: Optional value to filter by (exact match)
 
         Returns:
-            List of file paths that contain the property
+            List of file paths that contain the property (and match the value if specified)
         """
         # Use JsonLogic to find files where the property exists (is not null/undefined)
-        query = {
-            "and": [
-                {"glob": ["*.md", {"var": "path"}]},
-                {"!!": [{"var": f"frontmatter.{property_name}"}]}
-            ]
-        }
+        if property_value is None:
+            # Just check property exists
+            query = {
+                "and": [
+                    {"glob": ["*.md", {"var": "path"}]},
+                    {"!!": [{"var": f"frontmatter.{property_name}"}]}
+                ]
+            }
+        else:
+            # Check property exists AND matches value
+            query = {
+                "and": [
+                    {"glob": ["*.md", {"var": "path"}]},
+                    {"==": [{"var": f"frontmatter.{property_name}"}, property_value]}
+                ]
+            }
 
         results = self.search_json(query)
         return results

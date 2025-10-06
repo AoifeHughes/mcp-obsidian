@@ -63,7 +63,7 @@ class ListFilesInVaultToolHandler(ToolHandler):
     def get_tool_description(self):
         return Tool(
             name=self.name,
-            description="Lists all files and directories in the root directory of your Obsidian vault.",
+            description="List all files/directories in vault root.",
             inputSchema={
                 "type": "object",
                 "properties": {},
@@ -80,7 +80,7 @@ class ListFilesInVaultToolHandler(ToolHandler):
         return [
             TextContent(
                 type="text",
-                text=json.dumps(files, indent=2)
+                text=json.dumps(files, indent=2, ensure_ascii=False)
             )
         ]
     
@@ -91,13 +91,13 @@ class ListFilesInDirToolHandler(ToolHandler):
     def get_tool_description(self):
         return Tool(
             name=self.name,
-            description="Lists all files and directories that exist in a specific Obsidian directory.",
+            description="List files/directories in a specific folder.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "dirpath": {
                         "type": "string",
-                        "description": "Path to list files from (relative to your vault root). Note that empty directories will not be returned."
+                        "description": "Path relative to vault root"
                     },
                 },
                 "required": ["dirpath"]
@@ -117,7 +117,7 @@ class ListFilesInDirToolHandler(ToolHandler):
         return [
             TextContent(
                 type="text",
-                text=json.dumps(files, indent=2)
+                text=json.dumps(files, indent=2, ensure_ascii=False)
             )
         ]
     
@@ -128,13 +128,13 @@ class GetFileContentsToolHandler(ToolHandler):
     def get_tool_description(self):
         return Tool(
             name=self.name,
-            description="Return the content of a single file in your vault.",
+            description="Read a single file's content.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "filepath": {
                         "type": "string",
-                        "description": "Path to the relevant file (relative to your vault root).",
+                        "description": "File path relative to vault root",
                         "format": "path"
                     },
                 },
@@ -154,7 +154,7 @@ class GetFileContentsToolHandler(ToolHandler):
         return [
             TextContent(
                 type="text",
-                text=json.dumps(content, indent=2)
+                text=json.dumps(content, indent=2, ensure_ascii=False)
             )
         ]
     
@@ -165,18 +165,17 @@ class SearchToolHandler(ToolHandler):
     def get_tool_description(self):
         return Tool(
             name=self.name,
-            description="""Simple search for documents matching a specified text query across all files in the vault. 
-            Use this tool when you want to do a simple text search""",
+            description="Search vault for text matches with context.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Text to a simple search for in the vault."
+                        "description": "Text to search for"
                     },
                     "context_length": {
                         "type": "integer",
-                        "description": "How much context to return around the matching string (default: 100)",
+                        "description": "Context chars around match (default: 100)",
                         "default": 100
                     }
                 },
@@ -217,7 +216,7 @@ class SearchToolHandler(ToolHandler):
         return [
             TextContent(
                 type="text",
-                text=json.dumps(formatted_results, indent=2)
+                text=json.dumps(formatted_results, indent=2, ensure_ascii=False)
             )
         ]
     
@@ -250,7 +249,8 @@ class AppendContentToolHandler(ToolHandler):
        if "filepath" not in args or "content" not in args:
            raise RuntimeError("filepath and content arguments required")
 
-       api = obsidian.Obsidian(api_key=api_key, host=obsidian_host)
+       api_key, host, port = get_obsidian_config()
+       api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
        api.append_content(args.get("filepath", ""), args["content"])
 
        return [
@@ -303,7 +303,8 @@ class PatchContentToolHandler(ToolHandler):
        if not all(k in args for k in ["filepath", "operation", "target_type", "target", "content"]):
            raise RuntimeError("filepath, operation, target_type, target and content arguments required")
 
-       api = obsidian.Obsidian(api_key=api_key, host=obsidian_host)
+       api_key, host, port = get_obsidian_config()
+       api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
        api.patch_content(
            args.get("filepath", ""),
            args.get("operation", ""),
@@ -348,7 +349,8 @@ class PutContentToolHandler(ToolHandler):
        if "filepath" not in args or "content" not in args:
            raise RuntimeError("filepath and content arguments required")
 
-       api = obsidian.Obsidian(api_key=api_key, host=obsidian_host)
+       api_key, host, port = get_obsidian_config()
+       api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
        api.put_content(args.get("filepath", ""), args["content"])
 
        return [
@@ -388,11 +390,12 @@ class DeleteFileToolHandler(ToolHandler):
    def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
        if "filepath" not in args:
            raise RuntimeError("filepath argument missing in arguments")
-       
+
        if not args.get("confirm", False):
            raise RuntimeError("confirm must be set to true to delete a file")
 
-       api = obsidian.Obsidian(api_key=api_key, host=obsidian_host)
+       api_key, host, port = get_obsidian_config()
+       api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
        api.delete_file(args["filepath"])
 
        return [
@@ -456,13 +459,14 @@ class ComplexSearchToolHandler(ToolHandler):
        if "query" not in args:
            raise RuntimeError("query argument missing in arguments")
 
-       api = obsidian.Obsidian(api_key=api_key, host=obsidian_host)
+       api_key, host, port = get_obsidian_config()
+       api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
        results = api.search_json(args.get("query", ""))
 
        return [
            TextContent(
                type="text",
-               text=json.dumps(results, indent=2)
+               text=json.dumps(results, indent=2, ensure_ascii=False)
            )
        ]
 
@@ -473,7 +477,7 @@ class BatchGetFileContentsToolHandler(ToolHandler):
     def get_tool_description(self):
         return Tool(
             name=self.name,
-            description="Return the contents of multiple files in your vault, concatenated with headers.",
+            description="Read multiple files at once, concatenated.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -481,10 +485,10 @@ class BatchGetFileContentsToolHandler(ToolHandler):
                         "type": "array",
                         "items": {
                             "type": "string",
-                            "description": "Path to a file (relative to your vault root)",
+                            "description": "File path relative to vault root",
                             "format": "path"
                         },
-                        "description": "List of file paths to read"
+                        "description": "List of file paths"
                     },
                 },
                 "required": ["filepaths"]
@@ -513,18 +517,18 @@ class PeriodicNotesToolHandler(ToolHandler):
     def get_tool_description(self):
         return Tool(
             name=self.name,
-            description="Get current periodic note for the specified period.",
+            description="Get current periodic note (daily/weekly/monthly/quarterly/yearly).",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "period": {
                         "type": "string",
-                        "description": "The period type (daily, weekly, monthly, quarterly, yearly)",
+                        "description": "Period type",
                         "enum": ["daily", "weekly", "monthly", "quarterly", "yearly"]
                     },
                     "type": {
                         "type": "string",
-                        "description": "The type of data to get ('content' or 'metadata'). 'content' returns just the content in Markdown format. 'metadata' includes note metadata (including paths, tags, etc.) and the content.",
+                        "description": "'content' or 'metadata'",
                         "default": "content",
                         "enum": ["content", "metadata"]
                     }
@@ -565,25 +569,25 @@ class RecentPeriodicNotesToolHandler(ToolHandler):
     def get_tool_description(self):
         return Tool(
             name=self.name,
-            description="Get most recent periodic notes for the specified period type.",
+            description="Get recent periodic notes.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "period": {
                         "type": "string",
-                        "description": "The period type (daily, weekly, monthly, quarterly, yearly)",
+                        "description": "Period type",
                         "enum": ["daily", "weekly", "monthly", "quarterly", "yearly"]
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Maximum number of notes to return (default: 5)",
+                        "description": "Max notes (default: 5, max: 50)",
                         "default": 5,
                         "minimum": 1,
                         "maximum": 50
                     },
                     "include_content": {
                         "type": "boolean",
-                        "description": "Whether to include note content (default: false)",
+                        "description": "Include content (default: false)",
                         "default": False
                     }
                 },
@@ -626,20 +630,20 @@ class RecentChangesToolHandler(ToolHandler):
     def get_tool_description(self):
         return Tool(
             name=self.name,
-            description="Get recently modified files in the vault.",
+            description="Get recently modified files.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "limit": {
                         "type": "integer",
-                        "description": "Maximum number of files to return (default: 10)",
+                        "description": "Max files (default: 10, max: 100)",
                         "default": 10,
                         "minimum": 1,
                         "maximum": 100
                     },
                     "days": {
                         "type": "integer",
-                        "description": "Only include files modified within this many days (default: 90)",
+                        "description": "Modified within N days (default: 90)",
                         "minimum": 1,
                         "default": 90
                     }
@@ -674,13 +678,17 @@ class GetFilesWithPropertyToolHandler(ToolHandler):
     def get_tool_description(self):
         return Tool(
             name=self.name,
-            description="Get all files that contain a specific frontmatter property. Returns a list of files that have the specified property defined in their frontmatter.",
+            description="Get files with a specific frontmatter property. Use obsidian_get_property_values first if you don't know what values exist.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "property_name": {
                         "type": "string",
-                        "description": "Name of the frontmatter property to search for (e.g., 'reading_status', 'tags', 'project')"
+                        "description": "Property name (e.g., 'reading_status', 'tags')"
+                    },
+                    "property_value": {
+                        "type": "string",
+                        "description": "Optional: filter by exact value"
                     }
                 },
                 "required": ["property_name"]
@@ -693,19 +701,26 @@ class GetFilesWithPropertyToolHandler(ToolHandler):
 
         api_key, host, port = get_obsidian_config()
         api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
-        results = api.get_files_with_property(args["property_name"])
+        results = api.get_files_with_property(
+            args["property_name"],
+            args.get("property_value")
+        )
 
         # Extract just the filenames for cleaner output
         filenames = [result.get("filename") for result in results if result.get("filename")]
 
+        response_data = {
+            "property": args["property_name"],
+            "count": len(filenames),
+            "files": filenames
+        }
+        if "property_value" in args:
+            response_data["value_filter"] = args["property_value"]
+
         return [
             TextContent(
                 type="text",
-                text=json.dumps({
-                    "property": args["property_name"],
-                    "count": len(filenames),
-                    "files": filenames
-                }, indent=2)
+                text=json.dumps(response_data, indent=2, ensure_ascii=False)
             )
         ]
 
@@ -716,13 +731,13 @@ class GetPropertyValuesToolHandler(ToolHandler):
     def get_tool_description(self):
         return Tool(
             name=self.name,
-            description="Get all values for a specific frontmatter property across the vault. Returns both the unique values and which files contain each value.",
+            description="Discover all values for a property across vault. Use this BEFORE obsidian_get_files_with_property when you don't know what values exist.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "property_name": {
                         "type": "string",
-                        "description": "Name of the frontmatter property to get values for (e.g., 'reading_status', 'priority', 'author')"
+                        "description": "Property name to check values for"
                     }
                 },
                 "required": ["property_name"]
@@ -737,31 +752,36 @@ class GetPropertyValuesToolHandler(ToolHandler):
         api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
         results = api.get_property_values(args["property_name"])
 
-        # Organize results by value
-        values_map = {}
+        # Extract unique values only
+        unique_values = set()
         for result in results:
-            filename = result.get("filename")
             value = result.get("result")
-
             if value is not None:
-                # Convert value to string for consistent grouping
-                value_key = json.dumps(value) if isinstance(value, (dict, list)) else str(value)
+                # Convert to JSON string for consistent deduplication of complex types
+                value_key = json.dumps(value, sort_keys=True) if isinstance(value, (dict, list)) else value
+                unique_values.add(value_key)
 
-                if value_key not in values_map:
-                    values_map[value_key] = {
-                        "value": value,
-                        "files": []
-                    }
-                values_map[value_key]["files"].append(filename)
+        # Convert back to original types and sort
+        final_values = []
+        for v in unique_values:
+            try:
+                # Try to parse back if it was JSON
+                final_values.append(json.loads(v))
+            except (json.JSONDecodeError, TypeError):
+                # It's a simple value
+                final_values.append(v)
+
+        # Sort for consistent output
+        try:
+            final_values.sort()
+        except TypeError:
+            # Can't sort mixed types, just return as is
+            pass
 
         return [
             TextContent(
                 type="text",
-                text=json.dumps({
-                    "property": args["property_name"],
-                    "unique_values": len(values_map),
-                    "values": list(values_map.values())
-                }, indent=2)
+                text=json.dumps(final_values, indent=2, ensure_ascii=False)
             )
         ]
 
@@ -772,7 +792,7 @@ class ListAllPropertiesToolHandler(ToolHandler):
     def get_tool_description(self):
         return Tool(
             name=self.name,
-            description="List all unique frontmatter property names used across the entire vault. Useful for discovering what properties are available.",
+            description="List all property names in vault. Use this FIRST if you don't know what properties exist.",
             inputSchema={
                 "type": "object",
                 "properties": {},
@@ -788,9 +808,6 @@ class ListAllPropertiesToolHandler(ToolHandler):
         return [
             TextContent(
                 type="text",
-                text=json.dumps({
-                    "count": len(properties),
-                    "properties": properties
-                }, indent=2)
+                text=json.dumps(properties, indent=2, ensure_ascii=False)
             )
         ]
