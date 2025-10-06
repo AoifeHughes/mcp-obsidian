@@ -651,7 +651,7 @@ class RecentChangesToolHandler(ToolHandler):
         limit = args.get("limit", 10)
         if not isinstance(limit, int) or limit < 1:
             raise RuntimeError(f"Invalid limit: {limit}. Must be a positive integer")
-            
+
         days = args.get("days", 90)
         if not isinstance(days, int) or days < 1:
             raise RuntimeError(f"Invalid days: {days}. Must be a positive integer")
@@ -664,5 +664,133 @@ class RecentChangesToolHandler(ToolHandler):
             TextContent(
                 type="text",
                 text=json.dumps(results, indent=2)
+            )
+        ]
+
+class GetFilesWithPropertyToolHandler(ToolHandler):
+    def __init__(self):
+        super().__init__("obsidian_get_files_with_property")
+
+    def get_tool_description(self):
+        return Tool(
+            name=self.name,
+            description="Get all files that contain a specific frontmatter property. Returns a list of files that have the specified property defined in their frontmatter.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "property_name": {
+                        "type": "string",
+                        "description": "Name of the frontmatter property to search for (e.g., 'reading_status', 'tags', 'project')"
+                    }
+                },
+                "required": ["property_name"]
+            }
+        )
+
+    def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
+        if "property_name" not in args:
+            raise RuntimeError("property_name argument missing in arguments")
+
+        api_key, host, port = get_obsidian_config()
+        api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
+        results = api.get_files_with_property(args["property_name"])
+
+        # Extract just the filenames for cleaner output
+        filenames = [result.get("filename") for result in results if result.get("filename")]
+
+        return [
+            TextContent(
+                type="text",
+                text=json.dumps({
+                    "property": args["property_name"],
+                    "count": len(filenames),
+                    "files": filenames
+                }, indent=2)
+            )
+        ]
+
+class GetPropertyValuesToolHandler(ToolHandler):
+    def __init__(self):
+        super().__init__("obsidian_get_property_values")
+
+    def get_tool_description(self):
+        return Tool(
+            name=self.name,
+            description="Get all values for a specific frontmatter property across the vault. Returns both the unique values and which files contain each value.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "property_name": {
+                        "type": "string",
+                        "description": "Name of the frontmatter property to get values for (e.g., 'reading_status', 'priority', 'author')"
+                    }
+                },
+                "required": ["property_name"]
+            }
+        )
+
+    def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
+        if "property_name" not in args:
+            raise RuntimeError("property_name argument missing in arguments")
+
+        api_key, host, port = get_obsidian_config()
+        api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
+        results = api.get_property_values(args["property_name"])
+
+        # Organize results by value
+        values_map = {}
+        for result in results:
+            filename = result.get("filename")
+            value = result.get("result")
+
+            if value is not None:
+                # Convert value to string for consistent grouping
+                value_key = json.dumps(value) if isinstance(value, (dict, list)) else str(value)
+
+                if value_key not in values_map:
+                    values_map[value_key] = {
+                        "value": value,
+                        "files": []
+                    }
+                values_map[value_key]["files"].append(filename)
+
+        return [
+            TextContent(
+                type="text",
+                text=json.dumps({
+                    "property": args["property_name"],
+                    "unique_values": len(values_map),
+                    "values": list(values_map.values())
+                }, indent=2)
+            )
+        ]
+
+class ListAllPropertiesToolHandler(ToolHandler):
+    def __init__(self):
+        super().__init__("obsidian_list_all_properties")
+
+    def get_tool_description(self):
+        return Tool(
+            name=self.name,
+            description="List all unique frontmatter property names used across the entire vault. Useful for discovering what properties are available.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        )
+
+    def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
+        api_key, host, port = get_obsidian_config()
+        api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
+        properties = api.list_all_properties()
+
+        return [
+            TextContent(
+                type="text",
+                text=json.dumps({
+                    "count": len(properties),
+                    "properties": properties
+                }, indent=2)
             )
         ]

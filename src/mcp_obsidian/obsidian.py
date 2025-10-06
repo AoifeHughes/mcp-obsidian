@@ -252,11 +252,11 @@ class Obsidian():
     
     def get_recent_changes(self, limit: int = 10, days: int = 90) -> Any:
         """Get recently modified files in the vault.
-        
+
         Args:
             limit: Maximum number of files to return (default: 10)
             days: Only include files modified within this many days (default: 90)
-            
+
         Returns:
             List of recently modified files with metadata
         """
@@ -267,16 +267,16 @@ class Obsidian():
             "SORT file.mtime DESC",
             f"LIMIT {limit}"
         ]
-        
+
         # Join with proper DQL line breaks
         dql_query = "\n".join(query_lines)
-        
+
         # Make the request to search endpoint
         url = f"{self.get_base_url()}/search/"
         headers = self._get_headers() | {
             'Content-Type': 'application/vnd.olrapi.dataview.dql+txt'
         }
-        
+
         def call_fn():
             response = requests.post(
                 url,
@@ -289,3 +289,68 @@ class Obsidian():
             return response.json()
 
         return self._safe_call(call_fn)
+
+    def get_files_with_property(self, property_name: str) -> Any:
+        """Get all files that contain a specific frontmatter property.
+
+        Args:
+            property_name: Name of the frontmatter property to search for
+
+        Returns:
+            List of file paths that contain the property
+        """
+        # Use JsonLogic to find files where the property exists (is not null/undefined)
+        query = {
+            "and": [
+                {"glob": ["*.md", {"var": "path"}]},
+                {"!!": [{"var": f"frontmatter.{property_name}"}]}
+            ]
+        }
+
+        results = self.search_json(query)
+        return results
+
+    def get_property_values(self, property_name: str) -> Any:
+        """Get all unique values for a specific frontmatter property.
+
+        Args:
+            property_name: Name of the frontmatter property
+
+        Returns:
+            List of dictionaries with filename and the property value
+        """
+        # Use JsonLogic to get the property value from files where it exists
+        query = {
+            "and": [
+                {"glob": ["*.md", {"var": "path"}]},
+                {"!!": [{"var": f"frontmatter.{property_name}"}]},
+                {"var": f"frontmatter.{property_name}"}
+            ]
+        }
+
+        results = self.search_json(query)
+        return results
+
+    def list_all_properties(self) -> Any:
+        """Get all unique frontmatter property names across the vault.
+
+        Returns:
+            List of unique property names found in frontmatter across all files
+        """
+        # Get all markdown files with their frontmatter
+        query = {
+            "and": [
+                {"glob": ["*.md", {"var": "path"}]},
+                {"var": "frontmatter"}
+            ]
+        }
+
+        results = self.search_json(query)
+
+        # Extract all unique keys from frontmatter objects
+        all_keys = set()
+        for result in results:
+            if isinstance(result.get('result'), dict):
+                all_keys.update(result['result'].keys())
+
+        return sorted(list(all_keys))
