@@ -10,60 +10,122 @@ MCP server to interact with Obsidian via the Local REST API community plugin.
 
 The server implements multiple tools to interact with Obsidian:
 
-- list_files_in_vault: Lists all files and directories in the root directory of your Obsidian vault
-- list_files_in_dir: Lists all files and directories in a specific Obsidian directory
-- get_file_contents: Return the content of a single file in your vault.
-- search: Search for documents matching a specified text query across all files in the vault
-- patch_content: Insert content into an existing note relative to a heading, block reference, or frontmatter field.
-- append_content: Append content to a new or existing file in the vault.
-- delete_file: Delete a file or directory from your vault.
+#### Core File Operations
+- **list_files_in_vault**: Lists all files and directories in the root directory of your Obsidian vault
+- **list_files_in_dir**: Lists all files and directories in a specific Obsidian directory
+- **get_file_contents**: Return the content of a single file in your vault
+- **batch_get_file_contents**: Get contents of multiple files at once
+- **search**: Search for documents matching a specified text query across all files in the vault
+- **complex_search**: Advanced search using JsonLogic or Dataview Query Language
+- **patch_content**: Insert content into an existing note relative to a heading, block reference, or frontmatter field
+- **append_content**: Append content to a new or existing file in the vault
+- **put_content**: Create or completely replace file content
+- **delete_file**: Delete a file or directory from your vault
+
+#### Periodic Notes
+- **get_periodic_note**: Get current periodic note (daily, weekly, monthly, quarterly, yearly)
+- **get_recent_periodic_notes**: Get list of recent periodic notes
+- **get_recent_changes**: Get recently modified files in the vault
+
+#### Game Management
+- **obsidian_search_games**: Search for games in IGDB and GiantBomb databases
+- **obsidian_add_game**: Create a new game file with metadata from IGDB/GiantBomb
+- **obsidian_enrich_game**: Update existing game file with latest metadata
+
+#### Book Management (Calibre Integration)
+- **obsidian_search_books**: Search for books in your Calibre library
+- **obsidian_import_book_from_calibre**: Import a book from Calibre with metadata and cover art
+- **obsidian_update_book**: Update existing book file with latest Calibre metadata
+- **obsidian_sync_calibre**: Batch import multiple books from Calibre library
+
+#### GitHub Integration
+- **obsidian_import_github_issue**: Import a GitHub issue as an Obsidian task with AI-powered metadata extraction
 
 ### Example prompts
 
 Its good to first instruct Claude to use Obsidian. Then it will always call the tool.
 
-The use prompts like this:
+#### Core Operations
 - Get the contents of the last architecture call note and summarize them
 - Search for all files where Azure CosmosDb is mentioned and quickly explain to me the context in which it is mentioned
 - Summarize the last meeting notes and put them into a new note 'summary meeting.md'. Add an introduction so that I can send it via email.
 
+#### Game Management
+- Search for "The Witcher 3" and add it to my gaming vault
+- Show me all games in the IGDB database matching "Final Fantasy"
+- Update the metadata for my Minecraft game file
+
+#### Book Management
+- Import "The Name of the Wind" from my Calibre library
+- Search my Calibre library for books by Brandon Sanderson
+- Sync the first 10 books from my Calibre library to Obsidian
+
+#### GitHub Integration
+- Import GitHub issue #42 from owner/repo as a task in my Work/Projects/ProjectName folder
+- Convert https://github.com/owner/repo/issues/123 into an Obsidian task
+
 ## Configuration
 
-### Obsidian REST API Key
+### Required: Obsidian REST API Key
 
-There are two ways to configure the environment with the Obsidian REST API Key. 
+The OBSIDIAN_API_KEY can be configured in two ways:
 
-1. Add to server config (preferred)
+1. **Add to MCP server config (preferred)**
 
 ```json
 {
   "mcp-obsidian": {
     "command": "uvx",
-    "args": [
-      "mcp-obsidian"
-    ],
+    "args": ["mcp-obsidian"],
     "env": {
       "OBSIDIAN_API_KEY": "<your_api_key_here>",
-      "OBSIDIAN_HOST": "<your_obsidian_host>",
-      "OBSIDIAN_PORT": "<your_obsidian_port>"
+      "OBSIDIAN_HOST": "127.0.0.1",
+      "OBSIDIAN_PORT": "27124"
     }
   }
 }
 ```
-Sometimes Claude has issues detecting the location of uv / uvx. You can use `which uvx` to find and paste the full path in above config in such cases.
 
-2. Create a `.env` file in the working directory with the following required variables:
+2. **Create a `.env` file** in the working directory:
 
 ```
 OBSIDIAN_API_KEY=your_api_key_here
-OBSIDIAN_HOST=your_obsidian_host
-OBSIDIAN_PORT=your_obsidian_port
+OBSIDIAN_HOST=127.0.0.1
+OBSIDIAN_PORT=27124
 ```
 
 Note:
-- You can find the API key in the Obsidian plugin config
+- You can find the API key in the Obsidian Local REST API plugin settings
 - Default port is 27124 if not specified
 - Default host is 127.0.0.1 if not specified
+
+### Optional: Centralized API Keys (for Content Management Tools)
+
+For game, book, and GitHub integration features, create a `Keys/api_keys.json` file in your vault root:
+
+```json
+{
+  "igdb": {
+    "client_id": "your_twitch_client_id",
+    "client_secret": "your_twitch_client_secret"
+  },
+  "giantbomb": {
+    "api_key": "your_giantbomb_api_key"
+  },
+  "calibre": {
+    "library_path": "/path/to/calibre/library"
+  },
+  "llm": {
+    "api_base": "http://localhost:11434/v1",
+    "model": "llama.cpp"
+  },
+  "github": {
+    "token": "your_github_token"
+  }
+}
+```
+
+See `Keys/README.md` in your vault for detailed setup instructions.
 
 ## Quickstart
 

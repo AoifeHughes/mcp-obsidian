@@ -27,6 +27,27 @@ class ToolHandler():
 
     def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
         raise NotImplementedError()
+
+
+def create_tool_handler_wrapper(tool_name: str, parent_handler):
+    """Create a ToolHandler wrapper for multi-tool handlers"""
+    class ToolHandlerWrapper(ToolHandler):
+        def __init__(self):
+            super().__init__(tool_name)
+            self.parent = parent_handler
+            # Find the matching tool description
+            self.tool_desc = next(
+                (t for t in parent_handler.get_tool_descriptions() if t.name == tool_name),
+                None
+            )
+
+        def get_tool_description(self) -> Tool:
+            return self.tool_desc
+
+        def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
+            return self.parent.run_tool(tool_name, args)
+
+    return ToolHandlerWrapper()
     
 class ListFilesInVaultToolHandler(ToolHandler):
     def __init__(self):

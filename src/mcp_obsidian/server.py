@@ -55,6 +55,30 @@ add_tool_handler(tools.PeriodicNotesToolHandler())
 add_tool_handler(tools.RecentPeriodicNotesToolHandler())
 add_tool_handler(tools.RecentChangesToolHandler())
 
+# Add new content management tools
+try:
+    from .content_tools import GameToolHandler, BookToolHandler, GitHubToolHandler
+
+    # Register each tool from the handlers
+    game_handler = GameToolHandler()
+    for tool_desc in game_handler.get_tool_descriptions():
+        wrapper = tools.create_tool_handler_wrapper(tool_desc.name, game_handler)
+        add_tool_handler(wrapper)
+
+    book_handler = BookToolHandler()
+    for tool_desc in book_handler.get_tool_descriptions():
+        wrapper = tools.create_tool_handler_wrapper(tool_desc.name, book_handler)
+        add_tool_handler(wrapper)
+
+    github_handler = GitHubToolHandler()
+    for tool_desc in github_handler.get_tool_descriptions():
+        wrapper = tools.create_tool_handler_wrapper(tool_desc.name, github_handler)
+        add_tool_handler(wrapper)
+
+    logger.info("✅ Content management tools loaded successfully")
+except Exception as e:
+    logger.warning(f"⚠️  Content management tools not available: {e}")
+
 @app.list_tools()
 async def list_tools() -> list[Tool]:
     """List available tools."""
