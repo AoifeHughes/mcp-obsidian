@@ -62,20 +62,20 @@ class BookToolHandler:
             ),
             Tool(
                 name="obsidian_import_book_from_calibre",
-                description="Import a book from your Calibre library into Obsidian. Creates a structured note with metadata, cover art, and reading tracking fields.",
+                description="Import a book from your Calibre library into Obsidian. Creates a structured note with metadata, cover art, and reading tracking fields. Provide either 'title' to search or 'calibre_id' for direct lookup.",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "title": {
                             "type": "string",
-                            "description": "Book title to search for in Calibre"
+                            "description": "Book title to search for in Calibre (optional if calibre_id is provided)"
                         },
                         "calibre_id": {
                             "type": "integer",
-                            "description": "Optional: Calibre book ID if you already know it"
+                            "description": "Calibre book ID for direct lookup (optional if title is provided)"
                         }
                     },
-                    "required": ["title"]
+                    "required": []
                 }
             ),
             Tool(
@@ -209,14 +209,21 @@ class BookToolHandler:
 
     def _import_book(self, args: Dict[str, Any]) -> Sequence[TextContent]:
         """Import a book from Calibre"""
-        title = args["title"]
+        title = args.get("title")
         calibre_id = args.get("calibre_id")
 
         try:
-            # Get book data
+            # Get book data - prefer calibre_id if provided
             if calibre_id:
                 book_data = self.calibre_client.get_book_by_id(calibre_id)
-            else:
+                if not book_data:
+                    return [
+                        TextContent(
+                            type="text",
+                            text=f"❌ Book with Calibre ID {calibre_id} not found in Calibre library"
+                        )
+                    ]
+            elif title:
                 results = self.calibre_client.search_books(title, 1)
                 if not results:
                     return [
@@ -226,6 +233,13 @@ class BookToolHandler:
                         )
                     ]
                 book_data = results[0]
+            else:
+                return [
+                    TextContent(
+                        type="text",
+                        text="❌ Either 'title' or 'calibre_id' must be provided"
+                    )
+                ]
 
             # Generate filename
             safe_title = re.sub(r'[^\w\s-]', '', book_data['title']).strip()

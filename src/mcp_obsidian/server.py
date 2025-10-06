@@ -17,15 +17,12 @@ load_dotenv()
 
 from . import tools
 
-# Load environment variables
-
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp-obsidian")
 
-api_key = os.getenv("OBSIDIAN_API_KEY")
-if not api_key:
-    raise ValueError(f"OBSIDIAN_API_KEY environment variable required. Working directory: {os.getcwd()}")
+# Note: OBSIDIAN_API_KEY is validated at runtime when tools are used, not at import time
+# This allows the server to start and report available tools even if config is incomplete
 
 app = Server("mcp-obsidian")
 
@@ -56,28 +53,58 @@ add_tool_handler(tools.RecentPeriodicNotesToolHandler())
 add_tool_handler(tools.RecentChangesToolHandler())
 
 # Add new content management tools
+# These tools are optional - server will work without them if Keys folder doesn't exist
+content_tools_loaded = 0
+content_tools_failed = []
+
 try:
     from .content_tools import GameToolHandler, BookToolHandler, GitHubToolHandler
 
-    # Register each tool from the handlers
-    game_handler = GameToolHandler()
-    for tool_desc in game_handler.get_tool_descriptions():
-        wrapper = tools.create_tool_handler_wrapper(tool_desc.name, game_handler)
-        add_tool_handler(wrapper)
+    # Register game tools
+    try:
+        game_handler = GameToolHandler()
+        for tool_desc in game_handler.get_tool_descriptions():
+            wrapper = tools.create_tool_handler_wrapper(tool_desc.name, game_handler)
+            add_tool_handler(wrapper)
+            content_tools_loaded += 1
+        logger.info("✅ Game tools loaded successfully")
+    except Exception as e:
+        content_tools_failed.append(f"Game tools: {str(e)}")
+        logger.warning(f"⚠️  Game tools not available: {e}")
 
-    book_handler = BookToolHandler()
-    for tool_desc in book_handler.get_tool_descriptions():
-        wrapper = tools.create_tool_handler_wrapper(tool_desc.name, book_handler)
-        add_tool_handler(wrapper)
+    # Register book tools
+    try:
+        book_handler = BookToolHandler()
+        for tool_desc in book_handler.get_tool_descriptions():
+            wrapper = tools.create_tool_handler_wrapper(tool_desc.name, book_handler)
+            add_tool_handler(wrapper)
+            content_tools_loaded += 1
+        logger.info("✅ Book tools loaded successfully")
+    except Exception as e:
+        content_tools_failed.append(f"Book tools: {str(e)}")
+        logger.warning(f"⚠️  Book tools not available: {e}")
 
-    github_handler = GitHubToolHandler()
-    for tool_desc in github_handler.get_tool_descriptions():
-        wrapper = tools.create_tool_handler_wrapper(tool_desc.name, github_handler)
-        add_tool_handler(wrapper)
+    # Register GitHub tools
+    try:
+        github_handler = GitHubToolHandler()
+        for tool_desc in github_handler.get_tool_descriptions():
+            wrapper = tools.create_tool_handler_wrapper(tool_desc.name, github_handler)
+            add_tool_handler(wrapper)
+            content_tools_loaded += 1
+        logger.info("✅ GitHub tools loaded successfully")
+    except Exception as e:
+        content_tools_failed.append(f"GitHub tools: {str(e)}")
+        logger.warning(f"⚠️  GitHub tools not available: {e}")
 
-    logger.info("✅ Content management tools loaded successfully")
+    if content_tools_loaded > 0:
+        logger.info(f"✅ Loaded {content_tools_loaded} content management tool groups")
+    if content_tools_failed:
+        logger.info(f"ℹ️  Some content tools unavailable. To enable them, set up Keys/api_keys.json")
+
+except ImportError as e:
+    logger.warning(f"⚠️  Content management tools module not available: {e}")
 except Exception as e:
-    logger.warning(f"⚠️  Content management tools not available: {e}")
+    logger.warning(f"⚠️  Unexpected error loading content tools: {e}")
 
 @app.list_tools()
 async def list_tools() -> list[Tool]:

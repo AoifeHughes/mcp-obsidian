@@ -19,8 +19,16 @@ class IGDBClient:
     TOKEN_CACHE_FILE = "Scripts/igdb_token_cache.json"
 
     def __init__(self):
-        self._key_manager = KeyManager()
-        self.TWITCH_CLIENT_ID, self.TWITCH_CLIENT_SECRET = self._key_manager.get_igdb_keys()
+        try:
+            self._key_manager = KeyManager()
+            self.TWITCH_CLIENT_ID, self.TWITCH_CLIENT_SECRET = self._key_manager.get_igdb_keys()
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to load IGDB API keys. "
+                f"Please set up Keys/api_keys.json with valid IGDB credentials. "
+                f"Error: {e}"
+            )
+
         self.token = None
         self.token_expires_at = None
         self.session = requests.Session()

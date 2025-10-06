@@ -29,18 +29,36 @@ class KeyManager:
         self.vault_path = Path(vault_path)
         self.keys_path = self.vault_path / "Keys" / "api_keys.json"
         self._keys: Optional[Dict[str, Any]] = None
+        self._initialization_error: Optional[str] = None
 
+        # Don't fail immediately - allow lazy initialization
+        # Check if file exists but don't raise until keys are actually needed
         if not self.keys_path.exists():
-            raise FileNotFoundError(
+            self._initialization_error = (
                 f"API keys file not found at {self.keys_path}. "
-                f"Please create it using Keys/api_keys.example.json as a template."
+                f"Please create it with required API keys. "
+                f"See the documentation for details on setting up Keys/api_keys.json"
             )
 
     def load_keys(self) -> Dict[str, Any]:
         """Load all keys from the JSON file (cached after first load)"""
+        # Check if there was an initialization error
+        if self._initialization_error:
+            raise FileNotFoundError(self._initialization_error)
+
         if self._keys is None:
-            with open(self.keys_path, 'r') as f:
-                self._keys = json.load(f)
+            try:
+                with open(self.keys_path, 'r') as f:
+                    self._keys = json.load(f)
+            except json.JSONDecodeError as e:
+                raise ValueError(
+                    f"Invalid JSON in {self.keys_path}. "
+                    f"Please check the file format. Error: {e}"
+                )
+            except Exception as e:
+                raise RuntimeError(
+                    f"Failed to load API keys from {self.keys_path}: {e}"
+                )
         return self._keys
 
     def reload_keys(self) -> Dict[str, Any]:

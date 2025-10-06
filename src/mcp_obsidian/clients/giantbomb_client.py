@@ -15,8 +15,16 @@ class GiantBombClient:
     GIANTBOMB_BASE_URL = "https://www.giantbomb.com/api"
 
     def __init__(self):
-        self._key_manager = KeyManager()
-        self.GIANTBOMB_API_KEY = self._key_manager.get_giantbomb_api_key()
+        try:
+            self._key_manager = KeyManager()
+            self.GIANTBOMB_API_KEY = self._key_manager.get_giantbomb_api_key()
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to load GiantBomb API key. "
+                f"Please set up Keys/api_keys.json with a valid GiantBomb API key. "
+                f"Error: {e}"
+            )
+
         self.session = requests.Session()
         self.session.headers.update({'User-Agent': 'ObsidianGameDB/1.0'})
         

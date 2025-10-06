@@ -19,15 +19,29 @@ class CalibreClient:
     def __init__(self, library_path: Optional[str] = None):
         if library_path is None:
             # Load from centralized keys
-            self._key_manager = KeyManager()
-            library_path = self._key_manager.get_calibre_library_path()
+            try:
+                self._key_manager = KeyManager()
+                library_path = self._key_manager.get_calibre_library_path()
+            except Exception as e:
+                raise RuntimeError(
+                    f"Failed to load Calibre library path from Keys/api_keys.json. "
+                    f"Please configure the 'calibre.library_path' setting. "
+                    f"Error: {e}"
+                )
+
         self.library_path = Path(library_path)
         self.db_path = self.library_path / "metadata.db"
-        
+
         if not self.library_path.exists():
-            raise FileNotFoundError(f"Calibre library not found at: {library_path}")
+            raise FileNotFoundError(
+                f"Calibre library not found at: {library_path}. "
+                f"Please check your calibre.library_path setting in Keys/api_keys.json"
+            )
         if not self.db_path.exists():
-            raise FileNotFoundError(f"Calibre database not found at: {self.db_path}")
+            raise FileNotFoundError(
+                f"Calibre database (metadata.db) not found at: {self.db_path}. "
+                f"Please ensure this is a valid Calibre library directory."
+            )
             
     def get_all_books(self) -> List[Dict[str, Any]]:
         """Get all books from Calibre database"""
