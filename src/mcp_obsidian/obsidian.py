@@ -365,3 +365,53 @@ class Obsidian():
                 all_keys.update(result['result'].keys())
 
         return sorted(list(all_keys))
+
+    def fuzzy_search_files(self, query: str, limit: int = 10) -> list:
+        """Search for files using fuzzy matching on file names.
+
+        Args:
+            query: Search query to match against file names
+            limit: Maximum number of results to return (default: 10)
+
+        Returns:
+            List of dictionaries with filename and similarity score, sorted by score
+        """
+        from difflib import SequenceMatcher
+
+        # Get all files in vault using glob pattern
+        search_query = {
+            "glob": ["*", {"var": "path"}]
+        }
+
+        results = self.search_json(search_query)
+
+        # Calculate similarity scores for each file
+        scored_files = []
+        query_lower = query.lower()
+
+        for result in results:
+            filename = result.get('filename', '')
+            if not filename:
+                continue
+
+            # Calculate similarity score
+            filename_lower = filename.lower()
+
+            # Exact match gets highest score
+            if query_lower in filename_lower:
+                # Substring match - score based on position and length
+                score = 0.9 + (0.1 * len(query) / len(filename))
+            else:
+                # Use SequenceMatcher for fuzzy matching
+                matcher = SequenceMatcher(None, query_lower, filename_lower)
+                score = matcher.ratio()
+
+            if score > 0.3:  # Only include files with decent similarity
+                scored_files.append({
+                    'filename': filename,
+                    'score': round(score, 3)
+                })
+
+        # Sort by score (descending) and limit results
+        scored_files.sort(key=lambda x: x['score'], reverse=True)
+        return scored_files[:limit]

@@ -811,3 +811,49 @@ class ListAllPropertiesToolHandler(ToolHandler):
                 text=json.dumps(properties, indent=2, ensure_ascii=False)
             )
         ]
+
+class FuzzySearchFilesToolHandler(ToolHandler):
+    def __init__(self):
+        super().__init__("obsidian_fuzzy_search_files")
+
+    def get_tool_description(self):
+        return Tool(
+            name=self.name,
+            description="Search for files by name using fuzzy matching. Returns closest matching files sorted by similarity.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query to match against file names"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results to return (default: 10, max: 50)",
+                        "default": 10,
+                        "minimum": 1,
+                        "maximum": 50
+                    }
+                },
+                "required": ["query"]
+            }
+        )
+
+    def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
+        if "query" not in args:
+            raise RuntimeError("query argument missing in arguments")
+
+        limit = args.get("limit", 10)
+        if not isinstance(limit, int) or limit < 1:
+            raise RuntimeError(f"Invalid limit: {limit}. Must be a positive integer")
+
+        api_key, host, port = get_obsidian_config()
+        api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
+        results = api.fuzzy_search_files(args["query"], limit)
+
+        return [
+            TextContent(
+                type="text",
+                text=json.dumps(results, indent=2, ensure_ascii=False)
+            )
+        ]
