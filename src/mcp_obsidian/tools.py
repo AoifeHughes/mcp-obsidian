@@ -22,9 +22,6 @@ def get_obsidian_config():
     port = int(os.getenv("OBSIDIAN_PORT", "27124"))
     return api_key, host, port
 
-TOOL_LIST_FILES_IN_VAULT = "obsidian_list_files_in_vault"
-TOOL_LIST_FILES_IN_DIR = "obsidian_list_files_in_dir"
-
 class ToolHandler():
     def __init__(self, tool_name: str):
         self.name = tool_name
@@ -56,63 +53,38 @@ def create_tool_handler_wrapper(tool_name: str, parent_handler):
 
     return ToolHandlerWrapper()
     
-class ListFilesInVaultToolHandler(ToolHandler):
+class ListFilesToolHandler(ToolHandler):
     def __init__(self):
-        super().__init__(TOOL_LIST_FILES_IN_VAULT)
+        super().__init__("obsidian_list_files")
 
     def get_tool_description(self):
         return Tool(
             name=self.name,
-            description="List all files/directories in vault root.",
-            inputSchema={
-                "type": "object",
-                "properties": {},
-                "required": []
-            },
-        )
-
-    def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
-        api_key, host, port = get_obsidian_config()
-        api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
-
-        files = api.list_files_in_vault()
-
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps(files, indent=2, ensure_ascii=False)
-            )
-        ]
-    
-class ListFilesInDirToolHandler(ToolHandler):
-    def __init__(self):
-        super().__init__(TOOL_LIST_FILES_IN_DIR)
-
-    def get_tool_description(self):
-        return Tool(
-            name=self.name,
-            description="List files/directories in a specific folder.",
+            description="List files/directories in vault. Omit path for vault root, or specify a directory path.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "dirpath": {
+                    "path": {
                         "type": "string",
-                        "description": "Path relative to vault root"
+                        "description": "Directory path relative to vault root (optional, empty = vault root)",
+                        "default": ""
                     },
                 },
-                "required": ["dirpath"]
+                "required": []
             }
         )
 
     def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
-
-        if "dirpath" not in args:
-            raise RuntimeError("dirpath argument missing in arguments")
-
         api_key, host, port = get_obsidian_config()
         api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
 
-        files = api.list_files_in_dir(args["dirpath"])
+        # Use path parameter to determine which method to call
+        path = args.get("path", "")
+
+        if path == "" or path is None:
+            files = api.list_files_in_vault()
+        else:
+            files = api.list_files_in_dir(path)
 
         return [
             TextContent(
@@ -128,14 +100,23 @@ class GetFileContentsToolHandler(ToolHandler):
     def get_tool_description(self):
         return Tool(
             name=self.name,
-            description="Read a single file's content.",
+            description="Read file content(s). Accepts a single file path string or array of paths. Multiple files are concatenated with headers.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "filepath": {
-                        "type": "string",
-                        "description": "File path relative to vault root",
-                        "format": "path"
+                        "oneOf": [
+                            {
+                                "type": "string",
+                                "description": "Single file path relative to vault root"
+                            },
+                            {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Array of file paths relative to vault root"
+                            }
+                        ],
+                        "description": "File path(s) to read"
                     },
                 },
                 "required": ["filepath"]
@@ -149,12 +130,21 @@ class GetFileContentsToolHandler(ToolHandler):
         api_key, host, port = get_obsidian_config()
         api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
 
-        content = api.get_file_contents(args["filepath"])
+        filepath = args["filepath"]
+
+        # Handle both string and array inputs
+        if isinstance(filepath, list):
+            # Multiple files - use batch method
+            content = api.get_batch_file_contents(filepath)
+        else:
+            # Single file
+            content = api.get_file_contents(filepath)
+            content = json.dumps(content, indent=2, ensure_ascii=False)
 
         return [
             TextContent(
                 type="text",
-                text=json.dumps(content, indent=2, ensure_ascii=False)
+                text=content
             )
         ]
     
@@ -412,43 +402,13 @@ class ComplexSearchToolHandler(ToolHandler):
    def get_tool_description(self):
        return Tool(
            name=self.name,
-           description="""Complex search for documents using a JsonLogic query. 
-           Supports standard JsonLogic operators plus 'glob' and 'regexp' for pattern matching. Results must be non-falsy.
-
-           Use this tool when you want to do a complex search, e.g. for all documents with certain tags etc.
-           ALWAYS follow query syntax in examples.
-
-           Examples
-            1. Match all markdown files
-            {"glob": ["*.md", {"var": "path"}]}
-
-            2. Match all markdown files with 1221 substring inside them
-            {
-              "and": [
-                { "glob": ["*.md", {"var": "path"}] },
-                { "regexp": [".*1221.*", {"var": "content"}] }
-              ]
-            }
-
-            3. Match all markdown files in Work folder containing name Keaton
-            {
-              "and": [
-                { "glob": ["*.md", {"var": "path"}] },
-                { "regexp": [".*Work.*", {"var": "path"}] },
-                { "regexp": ["Keaton", {"var": "content"}] }
-              ]
-            }
-           """,
+           description="Advanced search using JsonLogic queries. Supports 'and', 'or', 'glob' (file patterns), and 'regexp' (regex). Vars: 'path', 'content', 'frontmatter'. Example: {\"and\": [{\"glob\": [\"*.md\", {\"var\": \"path\"}]}, {\"regexp\": [\"keyword\", {\"var\": \"content\"}]}]}",
            inputSchema={
                "type": "object",
                "properties": {
                    "query": {
                        "type": "object",
-                       "description": "JsonLogic query object. ALWAYS follow query syntax in examples. \
-                            Example 1: {\"glob\": [\"*.md\", {\"var\": \"path\"}]} matches all markdown files \
-                            Example 2: {\"and\": [{\"glob\": [\"*.md\", {\"var\": \"path\"}]}, {\"regexp\": [\".*1221.*\", {\"var\": \"content\"}]}]} matches all markdown files with 1221 substring inside them \
-                            Example 3: {\"and\": [{\"glob\": [\"*.md\", {\"var\": \"path\"}]}, {\"regexp\": [\".*Work.*\", {\"var\": \"path\"}]}, {\"regexp\": [\"Keaton\", {\"var\": \"content\"}]}]} matches all markdown files in Work folder containing name Keaton \
-                        "
+                       "description": "JsonLogic query object. Use 'glob' for paths, 'regexp' for content matching, 'and'/'or' for combining."
                    }
                },
                "required": ["query"]
@@ -470,54 +430,14 @@ class ComplexSearchToolHandler(ToolHandler):
            )
        ]
 
-class BatchGetFileContentsToolHandler(ToolHandler):
-    def __init__(self):
-        super().__init__("obsidian_batch_get_file_contents")
-
-    def get_tool_description(self):
-        return Tool(
-            name=self.name,
-            description="Read multiple files at once, concatenated.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "filepaths": {
-                        "type": "array",
-                        "items": {
-                            "type": "string",
-                            "description": "File path relative to vault root",
-                            "format": "path"
-                        },
-                        "description": "List of file paths"
-                    },
-                },
-                "required": ["filepaths"]
-            }
-        )
-
-    def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
-        if "filepaths" not in args:
-            raise RuntimeError("filepaths argument missing in arguments")
-
-        api_key, host, port = get_obsidian_config()
-        api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
-        content = api.get_batch_file_contents(args["filepaths"])
-
-        return [
-            TextContent(
-                type="text",
-                text=content
-            )
-        ]
-
 class PeriodicNotesToolHandler(ToolHandler):
     def __init__(self):
-        super().__init__("obsidian_get_periodic_note")
+        super().__init__("obsidian_get_periodic_notes")
 
     def get_tool_description(self):
         return Tool(
             name=self.name,
-            description="Get current periodic note (daily/weekly/monthly/quarterly/yearly).",
+            description="Get periodic note(s). Set recent=false for current note only, or recent=true for list of recent notes.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -526,9 +446,26 @@ class PeriodicNotesToolHandler(ToolHandler):
                         "description": "Period type",
                         "enum": ["daily", "weekly", "monthly", "quarterly", "yearly"]
                     },
+                    "recent": {
+                        "type": "boolean",
+                        "description": "Get recent list (true) or current note only (false, default)",
+                        "default": False
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max notes when recent=true (default: 5, max: 50)",
+                        "default": 5,
+                        "minimum": 1,
+                        "maximum": 50
+                    },
+                    "include_content": {
+                        "type": "boolean",
+                        "description": "Include content when recent=true (default: false)",
+                        "default": False
+                    },
                     "type": {
                         "type": "string",
-                        "description": "'content' or 'metadata'",
+                        "description": "Data type when recent=false: 'content' or 'metadata' (default: content)",
                         "default": "content",
                         "enum": ["content", "metadata"]
                     }
@@ -545,83 +482,43 @@ class PeriodicNotesToolHandler(ToolHandler):
         valid_periods = ["daily", "weekly", "monthly", "quarterly", "yearly"]
         if period not in valid_periods:
             raise RuntimeError(f"Invalid period: {period}. Must be one of: {', '.join(valid_periods)}")
-        
-        type = args["type"] if "type" in args else "content"
-        valid_types = ["content", "metadata"]
-        if type not in valid_types:
-            raise RuntimeError(f"Invalid type: {type}. Must be one of: {', '.join(valid_types)}")
 
         api_key, host, port = get_obsidian_config()
         api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
-        content = api.get_periodic_note(period,type)
 
-        return [
-            TextContent(
-                type="text",
-                text=content
-            )
-        ]
-        
-class RecentPeriodicNotesToolHandler(ToolHandler):
-    def __init__(self):
-        super().__init__("obsidian_get_recent_periodic_notes")
+        recent = args.get("recent", False)
 
-    def get_tool_description(self):
-        return Tool(
-            name=self.name,
-            description="Get recent periodic notes.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "period": {
-                        "type": "string",
-                        "description": "Period type",
-                        "enum": ["daily", "weekly", "monthly", "quarterly", "yearly"]
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Max notes (default: 5, max: 50)",
-                        "default": 5,
-                        "minimum": 1,
-                        "maximum": 50
-                    },
-                    "include_content": {
-                        "type": "boolean",
-                        "description": "Include content (default: false)",
-                        "default": False
-                    }
-                },
-                "required": ["period"]
-            }
-        )
+        if recent:
+            # Get list of recent notes
+            limit = args.get("limit", 5)
+            if not isinstance(limit, int) or limit < 1:
+                raise RuntimeError(f"Invalid limit: {limit}. Must be a positive integer")
 
-    def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
-        if "period" not in args:
-            raise RuntimeError("period argument missing in arguments")
+            include_content = args.get("include_content", False)
+            if not isinstance(include_content, bool):
+                raise RuntimeError(f"Invalid include_content: {include_content}. Must be a boolean")
 
-        period = args["period"]
-        valid_periods = ["daily", "weekly", "monthly", "quarterly", "yearly"]
-        if period not in valid_periods:
-            raise RuntimeError(f"Invalid period: {period}. Must be one of: {', '.join(valid_periods)}")
+            results = api.get_recent_periodic_notes(period, limit, include_content)
+            return [
+                TextContent(
+                    type="text",
+                    text=json.dumps(results, indent=2, ensure_ascii=False)
+                )
+            ]
+        else:
+            # Get current note only
+            note_type = args.get("type", "content")
+            valid_types = ["content", "metadata"]
+            if note_type not in valid_types:
+                raise RuntimeError(f"Invalid type: {note_type}. Must be one of: {', '.join(valid_types)}")
 
-        limit = args.get("limit", 5)
-        if not isinstance(limit, int) or limit < 1:
-            raise RuntimeError(f"Invalid limit: {limit}. Must be a positive integer")
-            
-        include_content = args.get("include_content", False)
-        if not isinstance(include_content, bool):
-            raise RuntimeError(f"Invalid include_content: {include_content}. Must be a boolean")
-
-        api_key, host, port = get_obsidian_config()
-        api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
-        results = api.get_recent_periodic_notes(period, limit, include_content)
-
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps(results, indent=2)
-            )
-        ]
+            content = api.get_periodic_note(period, note_type)
+            return [
+                TextContent(
+                    type="text",
+                    text=content
+                )
+            ]
         
 class RecentChangesToolHandler(ToolHandler):
     def __init__(self):
