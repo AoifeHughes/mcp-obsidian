@@ -147,6 +147,43 @@ class GetFileContentsToolHandler(ToolHandler):
                 text=content
             )
         ]
+
+class GetFileMetadataToolHandler(ToolHandler):
+    def __init__(self):
+        super().__init__("obsidian_get_file_metadata")
+
+    def get_tool_description(self):
+        return Tool(
+            name=self.name,
+            description="Get metadata for a specific file including frontmatter properties, tags, and file statistics. This returns only the metadata without file content.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "filepath": {
+                        "type": "string",
+                        "description": "Path to the file (relative to vault root)",
+                        "format": "path"
+                    }
+                },
+                "required": ["filepath"]
+            }
+        )
+
+    def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
+        if "filepath" not in args:
+            raise RuntimeError("filepath argument missing in arguments")
+
+        api_key, host, port = get_obsidian_config()
+        api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
+
+        metadata = api.get_file_metadata(args["filepath"])
+
+        return [
+            TextContent(
+                type="text",
+                text=json.dumps(metadata, indent=2, ensure_ascii=False)
+            )
+        ]
     
 class SearchToolHandler(ToolHandler):
     def __init__(self):
@@ -752,5 +789,108 @@ class FuzzySearchFilesToolHandler(ToolHandler):
             TextContent(
                 type="text",
                 text=json.dumps(results, indent=2, ensure_ascii=False)
+            )
+        ]
+
+class CreateSmartTaskToolHandler(ToolHandler):
+    def __init__(self):
+        super().__init__("obsidian_create_smart_task")
+
+    def get_tool_description(self):
+        return Tool(
+            name=self.name,
+            description="Create a new smart task file with metadata, status buttons, and proper structure. Mimics the SmartTask template functionality.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "project_folder": {
+                        "type": "string",
+                        "description": "Path to the project folder where the task should be created (e.g., 'Work/Turing/Projects/MyProject')",
+                        "format": "path"
+                    },
+                    "task_name": {
+                        "type": "string",
+                        "description": "Optional custom name for the task. If not provided, uses the project folder name."
+                    },
+                    "priority": {
+                        "type": "string",
+                        "description": "Task priority level (default: 🟡 Medium)",
+                        "enum": ["🟢 Low", "🟡 Medium", "🔴 High", "🟣 Ultra-High"],
+                        "default": "🟡 Medium"
+                    },
+                    "initial_notes": {
+                        "type": "string",
+                        "description": "Optional initial content for the Notes section"
+                    }
+                },
+                "required": ["project_folder"]
+            }
+        )
+
+    def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
+        if "project_folder" not in args:
+            raise RuntimeError("project_folder argument missing in arguments")
+
+        from datetime import datetime
+
+        api_key, host, port = get_obsidian_config()
+        api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
+
+        # Extract project name from folder path
+        project_folder = args["project_folder"].strip("/")
+        project_name = project_folder.split("/")[-1] if project_folder else "General"
+
+        # Generate filename with timestamp
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        time_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+        # Use custom task name if provided, otherwise use project name
+        task_name = args.get("task_name", project_name)
+        filename = f"{task_name} - {date_str}.md"
+
+        # Full file path
+        filepath = f"{project_folder}/{filename}" if project_folder else filename
+
+        # Get priority (default to Medium)
+        priority = args.get("priority", "🟡 Medium")
+
+        # Get initial notes if provided
+        initial_notes = args.get("initial_notes", "")
+
+        # Generate tag from project name (lowercase, replace spaces with hyphens)
+        tag = project_name.replace(" ", "-").lower()
+
+        # Build the file content
+        content = f"""---
+project: {project_name}
+status: 🔄 Not-Started
+priority: {priority}
+tags:
+  - {tag}
+created: {time_str}
+time-completed:
+---
+
+## Meta Data Buttons
+
+```meta-bind-embed
+  [[metabind-button-definitions]]
+```
+
+## 📝 Notes
+
+{initial_notes}
+
+## 📎 Resources
+
+"""
+
+        # Create the file
+        api.put_content(filepath, content)
+
+        return [
+            TextContent(
+                type="text",
+                text=f"Successfully created smart task at: {filepath}"
             )
         ]

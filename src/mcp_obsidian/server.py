@@ -41,6 +41,7 @@ def get_tool_handler(name: str) -> tools.ToolHandler | None:
 # Core file operations
 add_tool_handler(tools.ListFilesToolHandler())  # Consolidated: was list_files_in_vault + list_files_in_dir
 add_tool_handler(tools.GetFileContentsToolHandler())  # Consolidated: now handles single + batch
+add_tool_handler(tools.GetFileMetadataToolHandler())  # Get file metadata (frontmatter, tags, stats)
 add_tool_handler(tools.FuzzySearchFilesToolHandler())
 
 # Search operations
@@ -52,6 +53,9 @@ add_tool_handler(tools.AppendContentToolHandler())
 add_tool_handler(tools.PatchContentToolHandler())
 add_tool_handler(tools.PutContentToolHandler())
 add_tool_handler(tools.DeleteFileToolHandler())
+
+# Task creation
+add_tool_handler(tools.CreateSmartTaskToolHandler())
 
 # Periodic notes
 add_tool_handler(tools.PeriodicNotesToolHandler())  # Consolidated: was get_periodic_note + get_recent_periodic_notes

@@ -41,6 +41,9 @@ The server implements multiple tools to interact with Obsidian:
 #### GitHub Integration
 - **obsidian_import_github_issue**: Import a GitHub issue as an Obsidian task with AI-powered metadata extraction
 
+#### Task Management
+- **obsidian_create_smart_task**: Create a new smart task file with metadata, status buttons, and proper structure (mimics SmartTask template)
+
 ### Example prompts
 
 Its good to first instruct Claude to use Obsidian. Then it will always call the tool.
@@ -63,6 +66,10 @@ Its good to first instruct Claude to use Obsidian. Then it will always call the 
 #### GitHub Integration
 - Import GitHub issue #42 from owner/repo as a task in my Work/Projects/ProjectName folder
 - Convert https://github.com/owner/repo/issues/123 into an Obsidian task
+
+#### Task Management
+- Create a new task in my Work/Turing/Projects/Documentation folder for updating the README
+- Make a high-priority task called "Fix bug in authentication" in Personal/Projects/MyApp
 
 ## Configuration
 

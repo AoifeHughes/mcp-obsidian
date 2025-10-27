@@ -100,16 +100,14 @@ class BookToolHandler:
             ),
             Tool(
                 name="obsidian_sync_calibre",
-                description="Sync multiple books from Calibre library to Obsidian. Useful for batch importing your library.",
+                description="Sync books from Calibre library to Obsidian. By default syncs all books; use 'limit' parameter to restrict. Useful for batch importing your library.",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "limit": {
                             "type": "integer",
-                            "description": "Maximum number of books to sync (default: 10)",
-                            "default": 10,
-                            "minimum": 1,
-                            "maximum": 100
+                            "description": "Optional: Maximum number of books to sync. If not specified, syncs all books in library.",
+                            "minimum": 1
                         },
                         "skip_existing": {
                             "type": "boolean",
@@ -289,6 +287,12 @@ class BookToolHandler:
                 'languages': book_data['languages'],
                 'tags': tags,
                 'cover': cover_path if cover_path else '',
+                'formats': list(book_data['parsed_formats'].keys()) if book_data.get('parsed_formats') else [],
+                'identifiers': book_data.get('parsed_identifiers', {}),
+                'isbn': book_data.get('parsed_identifiers', {}).get('isbn', ''),
+                'comments': book_data.get('comments', ''),
+                'calibre_path': book_data.get('path', ''),
+                'pages': 0,  # Not available in Calibre metadata.db
                 'calibre_timestamp': book_data['timestamp']
             }
 
@@ -438,8 +442,15 @@ class BookToolHandler:
                 ]
 
             # Update frontmatter (preserve user data)
-            user_fields = ['reading_status', 'rating', 'date_started', 'date_finished']
-            preserved = {k: frontmatter.get(k) for k in user_fields if k in frontmatter}
+            # Define fields that come from Calibre (will be overwritten)
+            calibre_fields = {
+                'title', 'author', 'calibre_id', 'publication_date', 'publication_year',
+                'publisher', 'series', 'series_index', 'languages', 'cover',
+                'calibre_timestamp', 'formats', 'identifiers', 'isbn', 'comments',
+                'calibre_path', 'tags', 'pages'
+            }
+            # Preserve everything else (user data and custom fields)
+            preserved = {k: v for k, v in frontmatter.items() if k not in calibre_fields}
 
             # Parse publication date
             pub_date = ""
@@ -484,6 +495,12 @@ class BookToolHandler:
                 'series_index': book_data['series_index'],
                 'languages': book_data['languages'],
                 'cover': cover_path,
+                'formats': list(book_data['parsed_formats'].keys()) if book_data.get('parsed_formats') else [],
+                'identifiers': book_data.get('parsed_identifiers', {}),
+                'isbn': book_data.get('parsed_identifiers', {}).get('isbn', ''),
+                'comments': book_data.get('comments', ''),
+                'calibre_path': book_data.get('path', ''),
+                'pages': 0,  # Not available in Calibre metadata.db
                 'calibre_timestamp': book_data['timestamp']
             })
 
@@ -522,11 +539,13 @@ class BookToolHandler:
 
     def _sync_calibre(self, args: Dict[str, Any]) -> Sequence[TextContent]:
         """Sync books from Calibre to Obsidian"""
-        limit = args.get("limit", 10)
+        limit = args.get("limit")  # None means sync all books
         skip_existing = args.get("skip_existing", True)
 
         try:
-            all_books = self.calibre_client.get_all_books()[:limit]
+            all_books = self.calibre_client.get_all_books()
+            if limit is not None:
+                all_books = all_books[:limit]
 
             api = obsidian.Obsidian(
                 api_key=self.obsidian_api_key,

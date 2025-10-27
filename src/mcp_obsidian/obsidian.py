@@ -69,12 +69,44 @@ class Obsidian():
 
     def get_file_contents(self, filepath: str) -> Any:
         url = f"{self.get_base_url()}/vault/{filepath}"
-    
+
         def call_fn():
             response = requests.get(url, headers=self._get_headers(), verify=self.verify_ssl, timeout=self.timeout)
             response.raise_for_status()
-            
+
             return response.text
+
+        return self._safe_call(call_fn)
+
+    def get_file_metadata(self, filepath: str) -> Any:
+        """Get file metadata including frontmatter, tags, and file stats.
+
+        Args:
+            filepath: Path to the file relative to vault root
+
+        Returns:
+            Dictionary containing:
+            - frontmatter: Dictionary of frontmatter properties
+            - tags: List of tags in the file
+            - stat: File statistics (ctime, mtime, size)
+            - path: File path
+        """
+        url = f"{self.get_base_url()}/vault/{filepath}"
+
+        def call_fn():
+            headers = self._get_headers()
+            headers['Accept'] = 'application/vnd.olrapi.note+json'
+            response = requests.get(url, headers=headers, verify=self.verify_ssl, timeout=self.timeout)
+            response.raise_for_status()
+
+            data = response.json()
+            # Return without content to focus on metadata
+            return {
+                'frontmatter': data.get('frontmatter', {}),
+                'tags': data.get('tags', []),
+                'stat': data.get('stat', {}),
+                'path': data.get('path', '')
+            }
 
         return self._safe_call(call_fn)
     
