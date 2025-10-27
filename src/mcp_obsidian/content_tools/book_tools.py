@@ -422,12 +422,41 @@ class BookToolHandler:
             user_fields = ['reading_status', 'rating', 'date_started', 'date_finished']
             preserved = {k: frontmatter.get(k) for k in user_fields if k in frontmatter}
 
+            # Parse publication date
+            pub_date = ""
+            pub_year = ""
+            if book_data['pubdate']:
+                try:
+                    pub_dt = datetime.fromisoformat(book_data['pubdate'].replace('Z', '+00:00'))
+                    pub_date = pub_dt.strftime('%Y-%m-%d')
+                    pub_year = str(pub_dt.year)
+                except:
+                    pass
+
+            # Update all metadata fields from Calibre
             frontmatter.update({
                 'title': book_data['title'],
                 'author': book_data['authors'],
+                'calibre_id': book_data['id'],
+                'publication_date': pub_date,
+                'publication_year': pub_year,
                 'publisher': book_data['publishers'],
+                'series': book_data['series'][0] if book_data['series'] else '',
+                'series_index': book_data['series_index'],
+                'languages': book_data['languages'],
                 'calibre_timestamp': book_data['timestamp']
             })
+
+            # Update tags if provided (merge with existing book/reading tags)
+            if book_data['tags']:
+                existing_tags = frontmatter.get('tags', [])
+                base_tags = ['book', 'reading']
+                new_tags = [tag.lower().replace(' ', '-') for tag in book_data['tags']]
+                # Combine and deduplicate
+                all_tags = list(set(base_tags + new_tags + [t for t in existing_tags if t not in base_tags]))
+                frontmatter['tags'] = all_tags
+
+            # Restore preserved user fields
             frontmatter.update(preserved)
 
             # Rebuild file
@@ -466,6 +495,7 @@ class BookToolHandler:
             )
 
             created = 0
+            updated = 0
             skipped = 0
             errors = 0
 
@@ -476,21 +506,32 @@ class BookToolHandler:
                     safe_title = re.sub(r'[-\s]+', '-', safe_title).lower()
                     filepath = f"Reading/Books/{safe_title}.md"
 
-                    # Check if exists
-                    if skip_existing:
-                        try:
-                            api.get_file_contents(filepath)
+                    # Check if file exists
+                    file_exists = False
+                    try:
+                        api.get_file_contents(filepath)
+                        file_exists = True
+                    except:
+                        pass
+
+                    if file_exists:
+                        if skip_existing:
                             skipped += 1
                             continue
-                        except:
-                            pass
-
-                    # Import the book
-                    result = self._import_book({'calibre_id': book['id']})
-                    if '✅' in result[0].text:
-                        created += 1
+                        else:
+                            # Update existing book instead of overwriting
+                            result = self._update_book({'filepath': filepath, 'force': True})
+                            if '✅' in result[0].text:
+                                updated += 1
+                            else:
+                                errors += 1
                     else:
-                        errors += 1
+                        # Import new book
+                        result = self._import_book({'calibre_id': book['id']})
+                        if '✅' in result[0].text:
+                            created += 1
+                        else:
+                            errors += 1
 
                 except Exception as e:
                     errors += 1
@@ -498,7 +539,7 @@ class BookToolHandler:
             return [
                 TextContent(
                     type="text",
-                    text=f"📚 Calibre Sync Complete\n\nCreated: {created}\nSkipped: {skipped}\nErrors: {errors}\nTotal processed: {len(all_books)}"
+                    text=f"📚 Calibre Sync Complete\n\nCreated: {created}\nUpdated: {updated}\nSkipped: {skipped}\nErrors: {errors}\nTotal processed: {len(all_books)}"
                 )
             ]
 
