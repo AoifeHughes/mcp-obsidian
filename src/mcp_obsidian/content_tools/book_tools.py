@@ -246,6 +246,20 @@ class BookToolHandler:
             safe_title = re.sub(r'[-\s]+', '-', safe_title).lower()
             filepath = f"Reading/Books/{safe_title}.md"
 
+            # Handle book cover
+            cover_path = None
+            if book_data['has_cover'] and book_data.get('path'):
+                try:
+                    vault_path = Path(self._key_manager.vault_path)
+                    covers_dir = vault_path / "Attachments" / "book_covers"
+                    cover_path = self.calibre_client.copy_cover_to_obsidian(
+                        book_data['path'],
+                        covers_dir,
+                        safe_title
+                    )
+                except Exception as e:
+                    print(f"⚠️  Warning: Could not copy book cover: {e}")
+
             # Build frontmatter
             pub_date = ""
             pub_year = ""
@@ -274,6 +288,7 @@ class BookToolHandler:
                 'series_index': book_data['series_index'],
                 'languages': book_data['languages'],
                 'tags': tags,
+                'cover': cover_path if cover_path else '',
                 'calibre_timestamp': book_data['timestamp']
             }
 
@@ -296,13 +311,17 @@ class BookToolHandler:
                 if frontmatter.get('series_index'):
                     series_section += f" (Book {frontmatter['series_index']})"
 
+            cover_section = ""
+            if cover_path:
+                cover_section = f"\n![[{cover_path}|150]]\n"
+
             content = f"""---
 {yaml_str}---
 
 ```meta-bind-embed
   [[book-button-definitions]]
 ```
-
+{cover_section}
 ## 📖 Book Information
 
 **Author:** `=this.author`
@@ -433,6 +452,26 @@ class BookToolHandler:
                 except:
                     pass
 
+            # Handle book cover update
+            cover_path = frontmatter.get('cover', '')  # Preserve existing if present
+            if book_data['has_cover'] and book_data.get('path'):
+                try:
+                    # Generate safe filename from title
+                    safe_title = re.sub(r'[^\w\s-]', '', book_data['title']).strip()
+                    safe_title = re.sub(r'[-\s]+', '-', safe_title).lower()
+
+                    vault_path = Path(self._key_manager.vault_path)
+                    covers_dir = vault_path / "Attachments" / "book_covers"
+                    new_cover_path = self.calibre_client.copy_cover_to_obsidian(
+                        book_data['path'],
+                        covers_dir,
+                        safe_title
+                    )
+                    if new_cover_path:
+                        cover_path = new_cover_path
+                except Exception as e:
+                    print(f"⚠️  Warning: Could not update book cover: {e}")
+
             # Update all metadata fields from Calibre
             frontmatter.update({
                 'title': book_data['title'],
@@ -444,6 +483,7 @@ class BookToolHandler:
                 'series': book_data['series'][0] if book_data['series'] else '',
                 'series_index': book_data['series_index'],
                 'languages': book_data['languages'],
+                'cover': cover_path,
                 'calibre_timestamp': book_data['timestamp']
             })
 
