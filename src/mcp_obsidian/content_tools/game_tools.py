@@ -4,6 +4,7 @@ Game Tools - MCP tools for game metadata management
 
 import json
 import re
+import requests
 from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
@@ -196,7 +197,7 @@ class GameToolHandler:
                 'platform': platforms_list,
                 'genre': ', '.join(genres_list),
                 'play_status': '🔄 Not Played',
-                'star_rating': 'Not Rated',
+                'rating': 'Not Rated',
                 'igdb_id': game_data.get('id'),
                 'tags': ['game', 'games'] + [f"genre/{g.lower().replace(' ', '-')}" for g in genres_list]
             }
@@ -205,6 +206,16 @@ class GameToolHandler:
                 frontmatter['release_date'] = datetime.fromtimestamp(
                     game_data['first_release_date']
                 ).strftime('%Y-%m-%d')
+
+            # Download cover art if available
+            cover_path = None
+            if game_data.get('cover') and game_data['cover'].get('image_id'):
+                cover_path = self._download_cover_art(
+                    game_data['cover']['image_id'],
+                    safe_title
+                )
+                if cover_path:
+                    frontmatter['image_url'] = cover_path
 
             # Build content
             import yaml
@@ -229,7 +240,7 @@ class GameToolHandler:
 
 ## My Experience
 **Play Status:** `=this.play_status`
-**Star Rating:** `=this.star_rating`
+**Star Rating:** `=this.rating`
 
 ## Notes
 📝
@@ -357,3 +368,41 @@ class GameToolHandler:
                     text=f"❌ Error enriching game: {str(e)}"
                 )
             ]
+
+    def _download_cover_art(self, image_id: str, game_slug: str) -> Optional[str]:
+        """Download cover art from IGDB and save to Attachments/game_covers.
+
+        Args:
+            image_id: IGDB image ID
+            game_slug: Safe filename slug for the game
+
+        Returns:
+            Relative path to the cover image, or None if download failed
+        """
+        try:
+            # Construct cover URL (using t_cover_big for high quality)
+            cover_url = f"https://images.igdb.com/igdb/image/upload/t_cover_big/{image_id}.jpg"
+
+            # Determine save path
+            vault_path = self._key_manager.vault_path
+            cover_dir = vault_path / "Attachments" / "game_covers"
+            cover_dir.mkdir(parents=True, exist_ok=True)
+
+            cover_filename = f"{game_slug}.jpg"
+            cover_full_path = cover_dir / cover_filename
+
+            # Download the image
+            response = requests.get(cover_url, timeout=10)
+            response.raise_for_status()
+
+            # Save the image
+            with open(cover_full_path, 'wb') as f:
+                f.write(response.content)
+
+            # Return relative path for Obsidian
+            return f"Attachments/game_covers/{cover_filename}"
+
+        except Exception as e:
+            # Log but don't fail - cover art is optional
+            print(f"⚠️  Failed to download cover art: {e}")
+            return None

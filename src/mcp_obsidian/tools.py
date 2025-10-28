@@ -910,7 +910,7 @@ class DataviewQueryToolHandler(ToolHandler):
                 "\n\nExample queries:"
                 "\n- TABLE title, author, rating FROM \"Reading/Books\" WHERE reading_status = \"📚 Reading\""
                 "\n- TABLE file.link, status, priority FROM \"Work\" WHERE status = \"⚡ In-Progress\" AND priority = \"🔴 High\""
-                "\n- TABLE game_title, platform, star_rating FROM \"Gaming/Games\" WHERE play_status = \"🎮 Playing\" SORT star_rating DESC"
+                "\n- TABLE game_title, platform, rating FROM \"Gaming/Games\" WHERE play_status = \"🎮 Playing\" SORT rating DESC"
             ),
             inputSchema={
                 "type": "object",
@@ -1029,7 +1029,7 @@ class SuggestColumnsToolHandler(ToolHandler):
                 "additional": ["publisher", "pages", "isbn", "date_started", "date_finished", "calibre_id"]
             },
             "games": {
-                "common": ["game_title", "platform", "play_status", "star_rating", "genre", "release_date"],
+                "common": ["game_title", "platform", "play_status", "rating", "genre", "release_date"],
                 "additional": ["developer", "publisher", "game_modes", "themes", "rating", "igdb_id"]
             },
             "tasks": {
@@ -1056,7 +1056,7 @@ class SuggestColumnsToolHandler(ToolHandler):
             response_text += ", ".join(all_properties)
             response_text += "\n\n## Common Query Patterns\n"
             response_text += "- Books: title, author, reading_status, rating\n"
-            response_text += "- Games: game_title, platform, play_status, star_rating\n"
+            response_text += "- Games: game_title, platform, play_status, rating\n"
             response_text += "- Tasks: status, priority, project, created, due\n"
             response_text += "- Files: file.link, file.name, file.mtime, file.ctime\n"
 

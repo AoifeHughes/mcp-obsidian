@@ -16,7 +16,6 @@ class IGDBClient:
 
     # API Configuration - Load from centralized keys
     IGDB_BASE_URL = "https://api.igdb.com/v4"
-    TOKEN_CACHE_FILE = "Scripts/igdb_token_cache.json"
 
     def __init__(self):
         try:
@@ -28,6 +27,10 @@ class IGDBClient:
                 f"Please set up Keys/api_keys.json with valid IGDB credentials. "
                 f"Error: {e}"
             )
+
+        # Store token cache in Keys directory alongside api_keys.json
+        keys_dir = self._key_manager.keys_dir
+        self.TOKEN_CACHE_FILE = keys_dir / "igdb_token_cache.json"
 
         self.token = None
         self.token_expires_at = None
@@ -140,28 +143,32 @@ class IGDBClient:
         cache_path = Path(self.TOKEN_CACHE_FILE)
         if not cache_path.exists():
             return False
-            
+
         try:
             with open(cache_path, 'r') as f:
                 cache = json.load(f)
-                
+
             if cache.get('expires_at', 0) > time.time():
                 self.token = cache['token']
                 self.token_expires_at = cache['expires_at']
                 return True
         except:
             pass
-            
+
         return False
-        
+
     def _save_token_cache(self):
         """Save token to cache"""
         cache = {
             'token': self.token,
             'expires_at': self.token_expires_at
         }
-        
-        with open(self.TOKEN_CACHE_FILE, 'w') as f:
+
+        # Ensure Keys directory exists
+        cache_path = Path(self.TOKEN_CACHE_FILE)
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(cache_path, 'w') as f:
             json.dump(cache, f)
             
     def _rate_limit(self):

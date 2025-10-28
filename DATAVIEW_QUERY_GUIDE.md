@@ -45,8 +45,8 @@ TABLE title, author FROM "Reading/Books" SORT publication_year DESC LIMIT 10
 
 #### Games
 ```dql
-TABLE game_title, platform, star_rating FROM "Gaming/Games" WHERE play_status = "🎮 Playing"
-TABLE game_title, genre, rating FROM "Gaming/Games" WHERE star_rating = "⭐⭐⭐⭐⭐" SORT rating DESC
+TABLE game_title, platform, rating FROM "Gaming/Games" WHERE play_status = "🎮 Playing"
+TABLE game_title, genre, rating FROM "Gaming/Games" WHERE rating = "⭐⭐⭐⭐⭐" SORT rating DESC
 ```
 
 #### Tasks
@@ -143,12 +143,12 @@ content_type: "all"
 
 **Workflow:**
 1. Use `obsidian_suggest_columns` with `folder="Gaming/Games"` and `content_type="games"`
-2. Identify columns: `game_title`, `platform`, `star_rating`
+2. Identify columns: `game_title`, `platform`, `rating`
 3. Execute query:
    ```dql
-   TABLE game_title, platform, star_rating FROM "Gaming/Games"
-   WHERE platform contains "Nintendo Switch" AND star_rating = "⭐⭐⭐⭐⭐"
-   SORT star_rating DESC
+   TABLE game_title, platform, rating FROM "Gaming/Games"
+   WHERE platform contains "Nintendo Switch" AND rating = "⭐⭐⭐⭐⭐"
+   SORT rating DESC
    ```
 
 ## Property Schema Reference
@@ -158,7 +158,7 @@ content_type: "all"
 - **Additional**: `publisher`, `pages`, `isbn`, `date_started`, `date_finished`, `calibre_id`, `publication_year`, `languages`, `tags`, `cover`, `formats`, `identifiers`
 
 ### Games (Gaming/Games/)
-- **Common**: `game_title`, `platform`, `play_status`, `star_rating`, `genre`, `release_date`
+- **Common**: `game_title`, `platform`, `play_status`, `rating`, `genre`, `release_date`
 - **Additional**: `developer`, `publisher`, `game_modes`, `themes`, `rating`, `igdb_id`, `aggregated_rating`, `keywords`, `summary`, `storyline`, `player_perspectives`
 
 ### Tasks (Work/, Personal/)

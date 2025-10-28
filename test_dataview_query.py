@@ -78,7 +78,7 @@ except Exception as e:
 print("\n[Test 4] Currently playing games")
 print("-" * 80)
 try:
-    query = 'TABLE game_title, platform, star_rating FROM "Gaming/Games" WHERE play_status = "🎮 Playing" LIMIT 5'
+    query = 'TABLE game_title, platform, rating FROM "Gaming/Games" WHERE play_status = "🎮 Playing" LIMIT 5'
     result = api.execute_dataview_query(query, format="markdown_table")
     print(result)
     print("✅ Test 4 passed")

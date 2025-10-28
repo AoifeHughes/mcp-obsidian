@@ -27,7 +27,8 @@ class KeyManager:
             vault_path = Path(__file__).parent.parent.parent.parent.parent
 
         self.vault_path = Path(vault_path)
-        self.keys_path = self.vault_path / "Keys" / "api_keys.json"
+        self.keys_dir = self.vault_path / "Keys"
+        self.keys_path = self.keys_dir / "api_keys.json"
         self._keys: Optional[Dict[str, Any]] = None
         self._initialization_error: Optional[str] = None
 
