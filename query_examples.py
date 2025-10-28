@@ -9,11 +9,11 @@ from pathlib import Path
 import sys
 
 # Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).parent / "src"))
 from mcp_obsidian import obsidian
 
 # Load configuration
-keys_path = Path(__file__).parent.parent.parent.parent / "Keys" / "api_keys.json"
+keys_path = Path(__file__).parent.parent.parent / "Keys" / "api_keys.json"
 with open(keys_path) as f:
     config = json.load(f)
     obsidian_config = config.get("obsidian", {})
