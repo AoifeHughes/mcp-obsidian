@@ -894,3 +894,175 @@ time-completed:
                 text=f"Successfully created smart task at: {filepath}"
             )
         ]
+
+class DataviewQueryToolHandler(ToolHandler):
+    def __init__(self):
+        super().__init__("obsidian_dataview_query")
+
+    def get_tool_description(self):
+        return Tool(
+            name=self.name,
+            description=(
+                "Execute Dataview TABLE queries for flexible data retrieval from your Obsidian vault. "
+                "IMPORTANT: Only TABLE queries are supported (not LIST or TASK). "
+                "Use WHERE clauses, comparison operators, SORT, LIMIT, and GROUP BY for complex filtering. "
+                "Perfect for filtering books by rating, finding high-priority tasks, or aggregating data across files. "
+                "\n\nExample queries:"
+                "\n- TABLE title, author, rating FROM \"Reading/Books\" WHERE reading_status = \"📚 Reading\""
+                "\n- TABLE file.link, status, priority FROM \"Work\" WHERE status = \"⚡ In-Progress\" AND priority = \"🔴 High\""
+                "\n- TABLE game_title, platform, star_rating FROM \"Gaming/Games\" WHERE play_status = \"🎮 Playing\" SORT star_rating DESC"
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "DQL TABLE query string. Format: TABLE <columns> FROM \"<folder>\" [WHERE <conditions>] [SORT <column> ASC|DESC] [LIMIT <n>]\n"
+                            "Supported features:\n"
+                            "- Columns: Property names, file.link, file.name, file.mtime, etc.\n"
+                            "- FROM: Folder path in quotes (e.g., \"Reading/Books\")\n"
+                            "- WHERE: Filters with =, !=, <, >, <=, >=, contains, AND, OR\n"
+                            "- SORT: Column name with ASC/DESC\n"
+                            "- LIMIT: Number of results\n"
+                            "Example: 'TABLE title, author FROM \"Reading/Books\" WHERE rating >= 4 SORT title ASC LIMIT 10'"
+                        )
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["json", "markdown_table"],
+                        "default": "markdown_table",
+                        "description": "Output format: 'json' for raw data or 'markdown_table' for formatted display"
+                    }
+                },
+                "required": ["query"]
+            }
+        )
+
+    def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
+        if "query" not in args:
+            raise RuntimeError("query argument missing in arguments")
+
+        api_key, host, port = get_obsidian_config()
+        api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
+
+        format_type = args.get("format", "markdown_table")
+        result = api.execute_dataview_query(args["query"], format=format_type)
+
+        return [
+            TextContent(
+                type="text",
+                text=result if format_type == "markdown_table" else json.dumps(result, indent=2, ensure_ascii=False)
+            )
+        ]
+
+class SuggestColumnsToolHandler(ToolHandler):
+    def __init__(self):
+        super().__init__("obsidian_suggest_columns")
+
+    def get_tool_description(self):
+        return Tool(
+            name=self.name,
+            description=(
+                "Suggest relevant columns for Dataview queries based on content type. "
+                "Discovers available frontmatter properties in a specific folder or across the vault, "
+                "helping you build accurate TABLE queries. Use this before obsidian_dataview_query "
+                "to understand what fields are available for querying."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "folder": {
+                        "type": "string",
+                        "description": (
+                            "Folder path to analyze (e.g., 'Reading/Books', 'Gaming/Games', 'Work/Turing/Projects'). "
+                            "Omit to analyze all files in the vault."
+                        )
+                    },
+                    "content_type": {
+                        "type": "string",
+                        "enum": ["books", "games", "tasks", "all"],
+                        "default": "all",
+                        "description": "Filter suggestions by content type for more relevant results"
+                    }
+                },
+                "required": []
+            }
+        )
+
+    def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
+        api_key, host, port = get_obsidian_config()
+        api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
+
+        folder = args.get("folder")
+        content_type = args.get("content_type", "all")
+
+        # Get all properties
+        all_properties = api.list_all_properties()
+
+        # If folder is specified, filter to only properties found in that folder
+        if folder:
+            # Use JsonLogic to find files in the folder and extract their properties
+            query = {
+                "and": [
+                    {"glob": [f"{folder}/*.md", {"var": "path"}]},
+                    {"var": "frontmatter"}
+                ]
+            }
+
+            try:
+                results = api.search_json(query)
+                folder_properties = set()
+                for result in results:
+                    if isinstance(result.get('result'), dict):
+                        folder_properties.update(result['result'].keys())
+
+                all_properties = sorted(list(folder_properties))
+            except Exception as e:
+                # If folder search fails, fall back to all properties
+                pass
+
+        # Define common property sets by content type
+        property_suggestions = {
+            "books": {
+                "common": ["title", "author", "reading_status", "rating", "publication_date", "series", "genres"],
+                "additional": ["publisher", "pages", "isbn", "date_started", "date_finished", "calibre_id"]
+            },
+            "games": {
+                "common": ["game_title", "platform", "play_status", "star_rating", "genre", "release_date"],
+                "additional": ["developer", "publisher", "game_modes", "themes", "rating", "igdb_id"]
+            },
+            "tasks": {
+                "common": ["status", "priority", "project", "created", "time-completed", "due"],
+                "additional": ["tags", "file.link", "file.mtime"]
+            }
+        }
+
+        # Build response based on content type
+        if content_type != "all" and content_type in property_suggestions:
+            suggestions = property_suggestions[content_type]
+            available_common = [p for p in suggestions["common"] if p in all_properties]
+            available_additional = [p for p in suggestions["additional"] if p in all_properties]
+
+            response_text = f"# Suggested Columns for {content_type.capitalize()}\n\n"
+            response_text += "## Common Properties\n"
+            response_text += ", ".join(available_common) + "\n\n"
+            response_text += "## Additional Properties\n"
+            response_text += ", ".join(available_additional) + "\n\n"
+            response_text += "## All Available Properties\n"
+            response_text += ", ".join(all_properties)
+        else:
+            response_text = f"# Available Properties{' in ' + folder if folder else ''}\n\n"
+            response_text += ", ".join(all_properties)
+            response_text += "\n\n## Common Query Patterns\n"
+            response_text += "- Books: title, author, reading_status, rating\n"
+            response_text += "- Games: game_title, platform, play_status, star_rating\n"
+            response_text += "- Tasks: status, priority, project, created, due\n"
+            response_text += "- Files: file.link, file.name, file.mtime, file.ctime\n"
+
+        return [
+            TextContent(
+                type="text",
+                text=response_text
+            )
+        ]

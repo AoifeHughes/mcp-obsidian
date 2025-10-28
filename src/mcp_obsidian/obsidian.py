@@ -447,3 +447,105 @@ class Obsidian():
         # Sort by score (descending) and limit results
         scored_files.sort(key=lambda x: x['score'], reverse=True)
         return scored_files[:limit]
+
+    def execute_dataview_query(self, query: str, format: str = "markdown_table") -> Any:
+        """Execute a Dataview Query Language (DQL) query against the vault.
+
+        Args:
+            query: DQL query string (e.g., 'TABLE title, author FROM "Reading/Books" WHERE rating = "⭐⭐⭐⭐⭐"')
+            format: Output format - either "json" (raw response) or "markdown_table" (formatted table)
+
+        Returns:
+            Query results in specified format
+
+        Raises:
+            Exception: If query execution fails or format is invalid
+        """
+        url = f"{self.get_base_url()}/search/"
+        headers = self._get_headers() | {
+            'Content-Type': 'application/vnd.olrapi.dataview.dql+txt'
+        }
+
+        def call_fn():
+            response = requests.post(
+                url,
+                headers=headers,
+                data=query.encode('utf-8'),
+                verify=self.verify_ssl,
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            # If raw JSON requested, return as-is
+            if format == "json":
+                return result
+
+            # Format as markdown table
+            if format == "markdown_table":
+                return self._format_dataview_as_table(result)
+
+            raise Exception(f"Invalid format: {format}. Must be 'json' or 'markdown_table'")
+
+        return self._safe_call(call_fn)
+
+    def _format_dataview_as_table(self, dataview_result: list) -> str:
+        """Format Dataview query result as a markdown table.
+
+        Args:
+            dataview_result: Raw JSON response from Dataview query (list of dicts)
+
+        Returns:
+            Formatted markdown table string
+        """
+        if not dataview_result or not isinstance(dataview_result, list):
+            return "No results found."
+
+        if len(dataview_result) == 0:
+            return "No results found."
+
+        # Extract headers from the first result's 'result' dict
+        first_result = dataview_result[0]
+        if 'result' not in first_result or not isinstance(first_result['result'], dict):
+            return "No results found."
+
+        headers = ["File"] + list(first_result['result'].keys())
+
+        # Build markdown table
+        lines = []
+
+        # Header row
+        lines.append("| " + " | ".join(headers) + " |")
+
+        # Separator row
+        lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
+
+        # Data rows
+        for item in dataview_result:
+            filename = item.get('filename', '')
+            result_data = item.get('result', {})
+
+            # Build row starting with filename as a link
+            row = [f"[[{filename}]]" if filename else ""]
+
+            # Add each column value
+            for header in headers[1:]:  # Skip "File" header
+                cell = result_data.get(header)
+
+                if cell is None:
+                    row.append("")
+                elif isinstance(cell, dict):
+                    # Handle link objects from Dataview (e.g., file.link)
+                    if 'path' in cell:
+                        row.append(f"[[{cell['path']}]]")
+                    else:
+                        row.append(str(cell))
+                elif isinstance(cell, list):
+                    # Format arrays as comma-separated values
+                    row.append(", ".join(str(item) for item in cell))
+                else:
+                    row.append(str(cell))
+
+            lines.append("| " + " | ".join(row) + " |")
+
+        return "\n".join(lines)

@@ -66,6 +66,10 @@ add_tool_handler(tools.GetFilesWithPropertyToolHandler())
 add_tool_handler(tools.GetPropertyValuesToolHandler())
 add_tool_handler(tools.ListAllPropertiesToolHandler())
 
+# Dataview query tools
+add_tool_handler(tools.DataviewQueryToolHandler())
+add_tool_handler(tools.SuggestColumnsToolHandler())
+
 # Add new content management tools
 # These tools are optional - server will work without them if Keys folder doesn't exist
 content_tools_loaded = 0
