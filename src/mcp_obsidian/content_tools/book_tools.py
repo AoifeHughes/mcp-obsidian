@@ -16,6 +16,45 @@ from ..key_manager import KeyManager
 from .. import obsidian
 
 
+def sanitize_tag(tag: str) -> str:
+    """
+    Sanitize a tag to ensure it's valid for Obsidian.
+
+    Removes invalid characters and formats the tag properly:
+    - Removes: . , ; : ! ? ' " ( ) [ ] { } / \ & @ # $ % ^ * + = < > | ` ~
+    - Converts to lowercase
+    - Replaces spaces with hyphens
+    - Removes multiple consecutive hyphens
+    - Strips leading/trailing hyphens
+
+    Args:
+        tag: Raw tag string to sanitize
+
+    Returns:
+        Sanitized tag string safe for use in Obsidian
+    """
+    if not tag:
+        return ""
+
+    # Remove comprehensive set of invalid characters
+    # Keep only alphanumeric, spaces, and hyphens
+    sanitized = re.sub(r'[.,;:!?\'"()\[\]{}\/\\&@#$%^*+=<>|`~]', '', tag)
+
+    # Convert to lowercase
+    sanitized = sanitized.lower()
+
+    # Replace spaces with hyphens
+    sanitized = sanitized.replace(' ', '-')
+
+    # Remove multiple consecutive hyphens
+    sanitized = re.sub(r'-+', '-', sanitized)
+
+    # Strip leading/trailing hyphens
+    sanitized = sanitized.strip('-')
+
+    return sanitized
+
+
 class BookToolHandler:
     """Handler for book-related MCP tools"""
 
@@ -269,9 +308,15 @@ class BookToolHandler:
                 except:
                     pass
 
+            # Build tags: base tags + sanitized Calibre tags + sanitized series name
             tags = ['book', 'reading']
             if book_data['tags']:
-                tags.extend([tag.lower().replace(' ', '-') for tag in book_data['tags']])
+                tags.extend([sanitize_tag(tag) for tag in book_data['tags']])
+            # Add series name as tag if present
+            if book_data['series']:
+                series_tag = sanitize_tag(book_data['series'][0])
+                if series_tag and series_tag not in tags:
+                    tags.append(series_tag)
 
             frontmatter = {
                 'title': book_data['title'],
@@ -317,7 +362,10 @@ class BookToolHandler:
 
             cover_section = ""
             if cover_path:
-                cover_section = f"\n![[{cover_path}|150]]\n"
+                cover_section = f"""
+## 📚 Cover
+
+![[{cover_path}]]"""
 
             content = f"""---
 {yaml_str}---
@@ -325,14 +373,18 @@ class BookToolHandler:
 ```meta-bind-embed
   [[book-button-definitions]]
 ```
-{cover_section}
+
+```meta-bind-embed
+  [[BookStatusButtons]]
+```
+
 ## 📖 Book Information
 
 **Author:** `=this.author`
 **Publisher:** `=this.publisher`
 **Publication Date:** `=this.publication_date`
 **Languages:** `=this.languages`{series_section}
-
+{cover_section}
 ## 📝 Description
 
 {description}
@@ -504,14 +556,49 @@ class BookToolHandler:
                 'calibre_timestamp': book_data['timestamp']
             })
 
-            # Update tags if provided (merge with existing book/reading tags)
+            # Update tags: sanitize Calibre tags, add series, preserve custom tags
+            existing_tags = frontmatter.get('tags', [])
+            base_tags = ['book', 'reading']
+
+            # Get sanitized Calibre tags
+            calibre_tags = []
             if book_data['tags']:
-                existing_tags = frontmatter.get('tags', [])
-                base_tags = ['book', 'reading']
-                new_tags = [tag.lower().replace(' ', '-') for tag in book_data['tags']]
-                # Combine and deduplicate
-                all_tags = list(set(base_tags + new_tags + [t for t in existing_tags if t not in base_tags]))
-                frontmatter['tags'] = all_tags
+                calibre_tags = [sanitize_tag(tag) for tag in book_data['tags']]
+
+            # Get sanitized series tag
+            series_tag = None
+            if book_data['series']:
+                series_tag = sanitize_tag(book_data['series'][0])
+
+            # Identify custom tags (not base tags, not from Calibre, not series)
+            # First, get all potential generated tags from old data
+            old_calibre_tags = []
+            if frontmatter.get('tags'):
+                # Try to identify tags that might have been from Calibre/series
+                # Keep tags that aren't 'book' or 'reading' as potential custom tags
+                for tag in existing_tags:
+                    if tag not in base_tags:
+                        # This could be custom or from Calibre - we'll preserve it
+                        old_calibre_tags.append(tag)
+
+            # Build final tag list
+            all_tags = base_tags.copy()
+            all_tags.extend(calibre_tags)
+            if series_tag and series_tag not in all_tags:
+                all_tags.append(series_tag)
+
+            # Add back any custom tags that weren't in the new Calibre/series tags
+            # Preserve existing tags that might be custom
+            for tag in existing_tags:
+                if tag not in all_tags and tag not in base_tags:
+                    # This is likely a custom tag - preserve it
+                    all_tags.append(tag)
+
+            # Deduplicate and sanitize all tags (including custom ones)
+            all_tags = [sanitize_tag(tag) for tag in all_tags if tag]
+            all_tags = list(dict.fromkeys(all_tags))  # Deduplicate while preserving order
+
+            frontmatter['tags'] = all_tags
 
             # Restore preserved user fields
             frontmatter.update(preserved)
