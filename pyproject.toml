@@ -28,4 +28,4 @@ dev = [
 
 [project.scripts]
 mcp-obsidian = "mcp_obsidian:main"
-mcp-obsidian-http = "serve_http:main"
+mcp-obsidian-http = "mcp_obsidian.serve_http:main"

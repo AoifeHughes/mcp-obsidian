@@ -6,7 +6,7 @@ This script runs the MCP Obsidian server over HTTP with Server-Sent Events (SSE)
 instead of stdio. This enables web-based clients and remote access.
 
 Usage:
-    python serve_http.py
+    uv run mcp-obsidian-http
 
 Environment Variables:
     MCP_HTTP_HOST: Host to bind to (default: 127.0.0.1)
@@ -33,7 +33,7 @@ from starlette.middleware.cors import CORSMiddleware
 load_dotenv()
 
 # Import the MCP server instance
-from src.mcp_obsidian.server import app, logger
+from .server import app, logger
 
 # Configure logging
 logging.basicConfig(

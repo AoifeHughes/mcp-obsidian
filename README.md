@@ -147,8 +147,8 @@ uv sync
 # Run the HTTP server
 uv run mcp-obsidian-http
 
-# Or run directly
-uv run python serve_http.py
+# Or run as a module
+python -m mcp_obsidian.serve_http
 ```
 
 The server will start at `http://127.0.0.1:8000` by default.
