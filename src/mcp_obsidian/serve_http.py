@@ -26,7 +26,7 @@ from dotenv import load_dotenv
 from mcp.server.sse import SseServerTransport
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
-from starlette.routing import Route
+from starlette.routing import Route, Mount
 from starlette.middleware.cors import CORSMiddleware
 
 # Load environment variables
@@ -59,19 +59,21 @@ async def health_check(request):
     })
 
 
-async def handle_sse(scope, receive, send):
-    """Handle SSE connections for MCP - raw ASGI endpoint"""
-    async with sse_transport.connect_sse(scope, receive, send) as (read_stream, write_stream):
-        await app.run(
-            read_stream,
-            write_stream,
-            app.create_initialization_options()
-        )
+class SSEHandler:
+    """ASGI app for handling SSE connections"""
+    async def __call__(self, scope, receive, send):
+        async with sse_transport.connect_sse(scope, receive, send) as (read_stream, write_stream):
+            await app.run(
+                read_stream,
+                write_stream,
+                app.create_initialization_options()
+            )
 
 
-async def handle_messages(scope, receive, send):
-    """Handle POST requests to /messages endpoint - raw ASGI endpoint"""
-    await sse_transport.handle_post_message(scope, receive, send)
+class MessagesHandler:
+    """ASGI app for handling POST messages"""
+    async def __call__(self, scope, receive, send):
+        await sse_transport.handle_post_message(scope, receive, send)
 
 
 @asynccontextmanager
@@ -104,8 +106,8 @@ async def lifespan(starlette_app):
 # Create Starlette application
 routes = [
     Route("/health", health_check, methods=["GET"]),
-    Route("/sse", handle_sse, methods=["GET"]),
-    Route("/messages", handle_messages, methods=["POST"]),
+    Mount("/sse", app=SSEHandler()),
+    Mount("/messages", app=MessagesHandler()),
 ]
 
 starlette_app = Starlette(
