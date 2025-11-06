@@ -46,6 +46,9 @@ http_logger = logging.getLogger("mcp-obsidian-http")
 HOST = os.getenv("MCP_HTTP_HOST", "127.0.0.1")
 PORT = int(os.getenv("MCP_HTTP_PORT", "8000"))
 
+# Create SSE transport instance
+sse_transport = SseServerTransport("/messages")
+
 
 async def health_check(request):
     """Health check endpoint"""
@@ -56,9 +59,9 @@ async def health_check(request):
     })
 
 
-async def handle_sse(request):
-    """Handle SSE connections for MCP"""
-    async with SseServerTransport("/messages") as (read_stream, write_stream):
+async def handle_sse(scope, receive, send):
+    """Handle SSE connections for MCP - raw ASGI endpoint"""
+    async with sse_transport.connect_sse(scope, receive, send) as (read_stream, write_stream):
         await app.run(
             read_stream,
             write_stream,
@@ -66,18 +69,13 @@ async def handle_sse(request):
         )
 
 
-async def handle_messages(request):
-    """Handle POST requests to /messages endpoint"""
-    async with SseServerTransport("/messages") as (read_stream, write_stream):
-        await app.run(
-            read_stream,
-            write_stream,
-            app.create_initialization_options()
-        )
+async def handle_messages(scope, receive, send):
+    """Handle POST requests to /messages endpoint - raw ASGI endpoint"""
+    await sse_transport.handle_post_message(scope, receive, send)
 
 
 @asynccontextmanager
-async def lifespan(app):
+async def lifespan(starlette_app):
     """Lifespan context manager for startup/shutdown events"""
     http_logger.info("=" * 60)
     http_logger.info("🚀 MCP Obsidian HTTP Server Starting")
