@@ -136,25 +136,6 @@ class BookToolHandler:
                     },
                     "required": ["filepath"]
                 }
-            ),
-            Tool(
-                name="obsidian_sync_calibre",
-                description="Sync books from Calibre library to Obsidian. By default syncs all books; use 'limit' parameter to restrict. Useful for batch importing your library.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "limit": {
-                            "type": "integer",
-                            "description": "Optional: Maximum number of books to sync. If not specified, syncs all books in library.",
-                            "minimum": 1
-                        },
-                        "skip_existing": {
-                            "type": "boolean",
-                            "description": "Skip books that already exist in Obsidian (default: true)",
-                            "default": True
-                        }
-                    }
-                }
             )
         ]
 
@@ -174,8 +155,6 @@ class BookToolHandler:
             return self._import_book(arguments)
         elif tool_name == "obsidian_update_book":
             return self._update_book(arguments)
-        elif tool_name == "obsidian_sync_calibre":
-            return self._sync_calibre(arguments)
         else:
             raise ValueError(f"Unknown tool: {tool_name}")
 
@@ -624,75 +603,3 @@ class BookToolHandler:
                 )
             ]
 
-    def _sync_calibre(self, args: Dict[str, Any]) -> Sequence[TextContent]:
-        """Sync books from Calibre to Obsidian"""
-        limit = args.get("limit")  # None means sync all books
-        skip_existing = args.get("skip_existing", True)
-
-        try:
-            all_books = self.calibre_client.get_all_books()
-            if limit is not None:
-                all_books = all_books[:limit]
-
-            api = obsidian.Obsidian(
-                api_key=self.obsidian_api_key,
-                host=self.obsidian_host,
-                port=self.obsidian_port
-            )
-
-            created = 0
-            updated = 0
-            skipped = 0
-            errors = 0
-
-            for book in all_books:
-                try:
-                    # Generate filename
-                    safe_title = re.sub(r'[^\w\s-]', '', book['title']).strip()
-                    safe_title = re.sub(r'[-\s]+', '-', safe_title).lower()
-                    filepath = f"Reading/Books/{safe_title}.md"
-
-                    # Check if file exists
-                    file_exists = False
-                    try:
-                        api.get_file_contents(filepath)
-                        file_exists = True
-                    except:
-                        pass
-
-                    if file_exists:
-                        if skip_existing:
-                            skipped += 1
-                            continue
-                        else:
-                            # Update existing book instead of overwriting
-                            result = self._update_book({'filepath': filepath, 'force': True})
-                            if '✅' in result[0].text:
-                                updated += 1
-                            else:
-                                errors += 1
-                    else:
-                        # Import new book
-                        result = self._import_book({'calibre_id': book['id']})
-                        if '✅' in result[0].text:
-                            created += 1
-                        else:
-                            errors += 1
-
-                except Exception as e:
-                    errors += 1
-
-            return [
-                TextContent(
-                    type="text",
-                    text=f"📚 Calibre Sync Complete\n\nCreated: {created}\nUpdated: {updated}\nSkipped: {skipped}\nErrors: {errors}\nTotal processed: {len(all_books)}"
-                )
-            ]
-
-        except Exception as e:
-            return [
-                TextContent(
-                    type="text",
-                    text=f"❌ Sync failed: {str(e)}"
-                )
-            ]

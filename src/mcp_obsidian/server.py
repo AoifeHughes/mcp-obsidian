@@ -39,36 +39,24 @@ def get_tool_handler(name: str) -> tools.ToolHandler | None:
     return tool_handlers[name]
 
 # Core file operations
-add_tool_handler(tools.ListFilesToolHandler())  # Consolidated: was list_files_in_vault + list_files_in_dir
-add_tool_handler(tools.GetFileContentsToolHandler())  # Consolidated: now handles single + batch
-add_tool_handler(tools.GetFileMetadataToolHandler())  # Get file metadata (frontmatter, tags, stats)
-add_tool_handler(tools.FuzzySearchFilesToolHandler())
+add_tool_handler(tools.ListFilesToolHandler())
+add_tool_handler(tools.GetFileContentsToolHandler())
 
-# Search operations
-add_tool_handler(tools.SearchToolHandler())
-add_tool_handler(tools.ComplexSearchToolHandler())
+# Discovery & Search
+add_tool_handler(tools.FuzzySearchToolHandler())
 
 # File modification
 add_tool_handler(tools.AppendContentToolHandler())
 add_tool_handler(tools.PatchContentToolHandler())
 add_tool_handler(tools.PutContentToolHandler())
-add_tool_handler(tools.DeleteFileToolHandler())
 
 # Task creation
 add_tool_handler(tools.CreateSmartTaskToolHandler())
 
-# Periodic notes
-add_tool_handler(tools.PeriodicNotesToolHandler())  # Consolidated: was get_periodic_note + get_recent_periodic_notes
-
-# Recent changes & properties
-add_tool_handler(tools.RecentChangesToolHandler())
-add_tool_handler(tools.GetFilesWithPropertyToolHandler())
-add_tool_handler(tools.GetPropertyValuesToolHandler())
-add_tool_handler(tools.ListAllPropertiesToolHandler())
-
 # Dataview query tools
 add_tool_handler(tools.DataviewQueryToolHandler())
 add_tool_handler(tools.SuggestColumnsToolHandler())
+add_tool_handler(tools.GetPropertyValuesToolHandler())
 
 # Add new content management tools
 # These tools are optional - server will work without them if Keys folder doesn't exist

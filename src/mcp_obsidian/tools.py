@@ -1,3 +1,4 @@
+from collections import Counter
 from collections.abc import Sequence
 from mcp.types import (
     Tool,
@@ -7,6 +8,8 @@ from mcp.types import (
 )
 import json
 import os
+from typing import Any
+
 from . import obsidian
 
 # Obsidian configuration - will be validated when tools are actually used
@@ -60,7 +63,11 @@ class ListFilesToolHandler(ToolHandler):
     def get_tool_description(self):
         return Tool(
             name=self.name,
-            description="List files/directories in vault. Omit path for vault root, or specify a directory path.",
+            description=(
+                "List files/directories in vault. "
+                "For complex filtering by properties/content, use obsidian_dataview_query instead. "
+                "For fuzzy filename search, use obsidian_fuzzy_search with search_type='files'."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -100,7 +107,12 @@ class GetFileContentsToolHandler(ToolHandler):
     def get_tool_description(self):
         return Tool(
             name=self.name,
-            description="Read file content(s). Accepts a single file path string or array of paths. Multiple files are concatenated with headers.",
+            description=(
+                "Read file content(s) with optional metadata. "
+                "Accepts a single file path string or array of paths. "
+                "Use include_metadata=true to get frontmatter, tags, and file stats along with content. "
+                "Multiple files are concatenated with headers."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -118,6 +130,11 @@ class GetFileContentsToolHandler(ToolHandler):
                         ],
                         "description": "File path(s) to read"
                     },
+                    "include_metadata": {
+                        "type": "boolean",
+                        "description": "Include frontmatter, tags, and file statistics (default: false)",
+                        "default": False
+                    }
                 },
                 "required": ["filepath"]
             }
@@ -131,15 +148,46 @@ class GetFileContentsToolHandler(ToolHandler):
         api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
 
         filepath = args["filepath"]
+        include_metadata = args.get("include_metadata", False)
 
         # Handle both string and array inputs
         if isinstance(filepath, list):
-            # Multiple files - use batch method
-            content = api.get_batch_file_contents(filepath)
+            # Multiple files
+            if include_metadata:
+                # Get both content and metadata for each file
+                results = []
+                for fp in filepath:
+                    try:
+                        content = api.get_file_contents(fp)
+                        metadata = api.get_file_metadata(fp)
+                        results.append({
+                            "filepath": fp,
+                            "content": content,
+                            "metadata": metadata
+                        })
+                    except Exception as e:
+                        results.append({
+                            "filepath": fp,
+                            "error": str(e)
+                        })
+                content = json.dumps(results, indent=2, ensure_ascii=False)
+            else:
+                # Just content
+                content = api.get_batch_file_contents(filepath)
         else:
             # Single file
-            content = api.get_file_contents(filepath)
-            content = json.dumps(content, indent=2, ensure_ascii=False)
+            if include_metadata:
+                file_content = api.get_file_contents(filepath)
+                metadata = api.get_file_metadata(filepath)
+                result = {
+                    "filepath": filepath,
+                    "content": file_content,
+                    "metadata": metadata
+                }
+                content = json.dumps(result, indent=2, ensure_ascii=False)
+            else:
+                content = api.get_file_contents(filepath)
+                content = json.dumps(content, indent=2, ensure_ascii=False)
 
         return [
             TextContent(
@@ -148,105 +196,6 @@ class GetFileContentsToolHandler(ToolHandler):
             )
         ]
 
-class GetFileMetadataToolHandler(ToolHandler):
-    def __init__(self):
-        super().__init__("obsidian_get_file_metadata")
-
-    def get_tool_description(self):
-        return Tool(
-            name=self.name,
-            description="Get metadata for a specific file including frontmatter properties, tags, and file statistics. This returns only the metadata without file content.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "filepath": {
-                        "type": "string",
-                        "description": "Path to the file (relative to vault root)",
-                        "format": "path"
-                    }
-                },
-                "required": ["filepath"]
-            }
-        )
-
-    def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
-        if "filepath" not in args:
-            raise RuntimeError("filepath argument missing in arguments")
-
-        api_key, host, port = get_obsidian_config()
-        api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
-
-        metadata = api.get_file_metadata(args["filepath"])
-
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps(metadata, indent=2, ensure_ascii=False)
-            )
-        ]
-    
-class SearchToolHandler(ToolHandler):
-    def __init__(self):
-        super().__init__("obsidian_simple_search")
-
-    def get_tool_description(self):
-        return Tool(
-            name=self.name,
-            description="Search vault for text matches with context.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Text to search for"
-                    },
-                    "context_length": {
-                        "type": "integer",
-                        "description": "Context chars around match (default: 100)",
-                        "default": 100
-                    }
-                },
-                "required": ["query"]
-            }
-        )
-
-    def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
-        if "query" not in args:
-            raise RuntimeError("query argument missing in arguments")
-
-        context_length = args.get("context_length", 100)
-        
-        api_key, host, port = get_obsidian_config()
-        api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
-        results = api.search(args["query"], context_length)
-        
-        formatted_results = []
-        for result in results:
-            formatted_matches = []
-            for match in result.get('matches', []):
-                context = match.get('context', '')
-                match_pos = match.get('match', {})
-                start = match_pos.get('start', 0)
-                end = match_pos.get('end', 0)
-                
-                formatted_matches.append({
-                    'context': context,
-                    'match_position': {'start': start, 'end': end}
-                })
-                
-            formatted_results.append({
-                'filename': result.get('filename', ''),
-                'score': result.get('score', 0),
-                'matches': formatted_matches
-            })
-
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps(formatted_results, indent=2, ensure_ascii=False)
-            )
-        ]
-    
 class AppendContentToolHandler(ToolHandler):
    def __init__(self):
        super().__init__("obsidian_append_content")
@@ -354,7 +303,11 @@ class PutContentToolHandler(ToolHandler):
    def get_tool_description(self):
        return Tool(
            name=self.name,
-           description="Create a new file in your vault or update the content of an existing one in your vault.",
+           description=(
+               "Create a new file or completely replace an existing file's content. "
+               "WARNING: This overwrites the entire file. "
+               "For adding content to existing files, use obsidian_append_content or obsidian_patch_content instead."
+           ),
            inputSchema={
                "type": "object",
                "properties": {
@@ -365,7 +318,7 @@ class PutContentToolHandler(ToolHandler):
                    },
                    "content": {
                        "type": "string",
-                       "description": "Content of the file you would like to upload"
+                       "description": "Complete content of the file (will overwrite existing content)"
                    }
                },
                "required": ["filepath", "content"]
@@ -388,378 +341,33 @@ class PutContentToolHandler(ToolHandler):
        ]
    
 
-class DeleteFileToolHandler(ToolHandler):
-   def __init__(self):
-       super().__init__("obsidian_delete_file")
 
-   def get_tool_description(self):
-       return Tool(
-           name=self.name,
-           description="Delete a file or directory from the vault.",
-           inputSchema={
-               "type": "object",
-               "properties": {
-                   "filepath": {
-                       "type": "string",
-                       "description": "Path to the file or directory to delete (relative to vault root)",
-                       "format": "path"
-                   },
-                   "confirm": {
-                       "type": "boolean",
-                       "description": "Confirmation to delete the file (must be true)",
-                       "default": False
-                   }
-               },
-               "required": ["filepath", "confirm"]
-           }
-       )
 
-   def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
-       if "filepath" not in args:
-           raise RuntimeError("filepath argument missing in arguments")
 
-       if not args.get("confirm", False):
-           raise RuntimeError("confirm must be set to true to delete a file")
-
-       api_key, host, port = get_obsidian_config()
-       api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
-       api.delete_file(args["filepath"])
-
-       return [
-           TextContent(
-               type="text",
-               text=f"Successfully deleted {args['filepath']}"
-           )
-       ]
-   
-class ComplexSearchToolHandler(ToolHandler):
-   def __init__(self):
-       super().__init__("obsidian_complex_search")
-
-   def get_tool_description(self):
-       return Tool(
-           name=self.name,
-           description="Advanced search using JsonLogic queries. Supports 'and', 'or', 'glob' (file patterns), and 'regexp' (regex). Vars: 'path', 'content', 'frontmatter'. Example: {\"and\": [{\"glob\": [\"*.md\", {\"var\": \"path\"}]}, {\"regexp\": [\"keyword\", {\"var\": \"content\"}]}]}",
-           inputSchema={
-               "type": "object",
-               "properties": {
-                   "query": {
-                       "type": "object",
-                       "description": "JsonLogic query object. Use 'glob' for paths, 'regexp' for content matching, 'and'/'or' for combining."
-                   }
-               },
-               "required": ["query"]
-           }
-       )
-
-   def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
-       if "query" not in args:
-           raise RuntimeError("query argument missing in arguments")
-
-       api_key, host, port = get_obsidian_config()
-       api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
-       results = api.search_json(args.get("query", ""))
-
-       return [
-           TextContent(
-               type="text",
-               text=json.dumps(results, indent=2, ensure_ascii=False)
-           )
-       ]
-
-class PeriodicNotesToolHandler(ToolHandler):
+class FuzzySearchToolHandler(ToolHandler):
     def __init__(self):
-        super().__init__("obsidian_get_periodic_notes")
+        super().__init__("obsidian_fuzzy_search")
 
     def get_tool_description(self):
         return Tool(
             name=self.name,
-            description="Get periodic note(s). Set recent=false for current note only, or recent=true for list of recent notes.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "period": {
-                        "type": "string",
-                        "description": "Period type",
-                        "enum": ["daily", "weekly", "monthly", "quarterly", "yearly"]
-                    },
-                    "recent": {
-                        "type": "boolean",
-                        "description": "Get recent list (true) or current note only (false, default)",
-                        "default": False
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Max notes when recent=true (default: 5, max: 50)",
-                        "default": 5,
-                        "minimum": 1,
-                        "maximum": 50
-                    },
-                    "include_content": {
-                        "type": "boolean",
-                        "description": "Include content when recent=true (default: false)",
-                        "default": False
-                    },
-                    "type": {
-                        "type": "string",
-                        "description": "Data type when recent=false: 'content' or 'metadata' (default: content)",
-                        "default": "content",
-                        "enum": ["content", "metadata"]
-                    }
-                },
-                "required": ["period"]
-            }
-        )
-
-    def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
-        if "period" not in args:
-            raise RuntimeError("period argument missing in arguments")
-
-        period = args["period"]
-        valid_periods = ["daily", "weekly", "monthly", "quarterly", "yearly"]
-        if period not in valid_periods:
-            raise RuntimeError(f"Invalid period: {period}. Must be one of: {', '.join(valid_periods)}")
-
-        api_key, host, port = get_obsidian_config()
-        api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
-
-        recent = args.get("recent", False)
-
-        if recent:
-            # Get list of recent notes
-            limit = args.get("limit", 5)
-            if not isinstance(limit, int) or limit < 1:
-                raise RuntimeError(f"Invalid limit: {limit}. Must be a positive integer")
-
-            include_content = args.get("include_content", False)
-            if not isinstance(include_content, bool):
-                raise RuntimeError(f"Invalid include_content: {include_content}. Must be a boolean")
-
-            results = api.get_recent_periodic_notes(period, limit, include_content)
-            return [
-                TextContent(
-                    type="text",
-                    text=json.dumps(results, indent=2, ensure_ascii=False)
-                )
-            ]
-        else:
-            # Get current note only
-            note_type = args.get("type", "content")
-            valid_types = ["content", "metadata"]
-            if note_type not in valid_types:
-                raise RuntimeError(f"Invalid type: {note_type}. Must be one of: {', '.join(valid_types)}")
-
-            content = api.get_periodic_note(period, note_type)
-            return [
-                TextContent(
-                    type="text",
-                    text=content
-                )
-            ]
-        
-class RecentChangesToolHandler(ToolHandler):
-    def __init__(self):
-        super().__init__("obsidian_get_recent_changes")
-
-    def get_tool_description(self):
-        return Tool(
-            name=self.name,
-            description="Get recently modified files.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "limit": {
-                        "type": "integer",
-                        "description": "Max files (default: 10, max: 100)",
-                        "default": 10,
-                        "minimum": 1,
-                        "maximum": 100
-                    },
-                    "days": {
-                        "type": "integer",
-                        "description": "Modified within N days (default: 90)",
-                        "minimum": 1,
-                        "default": 90
-                    }
-                }
-            }
-        )
-
-    def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
-        limit = args.get("limit", 10)
-        if not isinstance(limit, int) or limit < 1:
-            raise RuntimeError(f"Invalid limit: {limit}. Must be a positive integer")
-
-        days = args.get("days", 90)
-        if not isinstance(days, int) or days < 1:
-            raise RuntimeError(f"Invalid days: {days}. Must be a positive integer")
-
-        api_key, host, port = get_obsidian_config()
-        api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
-        results = api.get_recent_changes(limit, days)
-
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps(results, indent=2)
-            )
-        ]
-
-class GetFilesWithPropertyToolHandler(ToolHandler):
-    def __init__(self):
-        super().__init__("obsidian_get_files_with_property")
-
-    def get_tool_description(self):
-        return Tool(
-            name=self.name,
-            description="Get files with a specific frontmatter property. Use obsidian_get_property_values first if you don't know what values exist.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "property_name": {
-                        "type": "string",
-                        "description": "Property name (e.g., 'reading_status', 'tags')"
-                    },
-                    "property_value": {
-                        "type": "string",
-                        "description": "Optional: filter by exact value"
-                    }
-                },
-                "required": ["property_name"]
-            }
-        )
-
-    def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
-        if "property_name" not in args:
-            raise RuntimeError("property_name argument missing in arguments")
-
-        api_key, host, port = get_obsidian_config()
-        api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
-        results = api.get_files_with_property(
-            args["property_name"],
-            args.get("property_value")
-        )
-
-        # Extract just the filenames for cleaner output
-        filenames = [result.get("filename") for result in results if result.get("filename")]
-
-        response_data = {
-            "property": args["property_name"],
-            "count": len(filenames),
-            "files": filenames
-        }
-        if "property_value" in args:
-            response_data["value_filter"] = args["property_value"]
-
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps(response_data, indent=2, ensure_ascii=False)
-            )
-        ]
-
-class GetPropertyValuesToolHandler(ToolHandler):
-    def __init__(self):
-        super().__init__("obsidian_get_property_values")
-
-    def get_tool_description(self):
-        return Tool(
-            name=self.name,
-            description="Discover all values for a property across vault. Use this BEFORE obsidian_get_files_with_property when you don't know what values exist.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "property_name": {
-                        "type": "string",
-                        "description": "Property name to check values for"
-                    }
-                },
-                "required": ["property_name"]
-            }
-        )
-
-    def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
-        if "property_name" not in args:
-            raise RuntimeError("property_name argument missing in arguments")
-
-        api_key, host, port = get_obsidian_config()
-        api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
-        results = api.get_property_values(args["property_name"])
-
-        # Extract unique values only
-        unique_values = set()
-        for result in results:
-            value = result.get("result")
-            if value is not None:
-                # Convert to JSON string for consistent deduplication of complex types
-                value_key = json.dumps(value, sort_keys=True) if isinstance(value, (dict, list)) else value
-                unique_values.add(value_key)
-
-        # Convert back to original types and sort
-        final_values = []
-        for v in unique_values:
-            try:
-                # Try to parse back if it was JSON
-                final_values.append(json.loads(v))
-            except (json.JSONDecodeError, TypeError):
-                # It's a simple value
-                final_values.append(v)
-
-        # Sort for consistent output
-        try:
-            final_values.sort()
-        except TypeError:
-            # Can't sort mixed types, just return as is
-            pass
-
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps(final_values, indent=2, ensure_ascii=False)
-            )
-        ]
-
-class ListAllPropertiesToolHandler(ToolHandler):
-    def __init__(self):
-        super().__init__("obsidian_list_all_properties")
-
-    def get_tool_description(self):
-        return Tool(
-            name=self.name,
-            description="List all property names in vault. Use this FIRST if you don't know what properties exist.",
-            inputSchema={
-                "type": "object",
-                "properties": {},
-                "required": []
-            }
-        )
-
-    def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
-        api_key, host, port = get_obsidian_config()
-        api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
-        properties = api.list_all_properties()
-
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps(properties, indent=2, ensure_ascii=False)
-            )
-        ]
-
-class FuzzySearchFilesToolHandler(ToolHandler):
-    def __init__(self):
-        super().__init__("obsidian_fuzzy_search_files")
-
-    def get_tool_description(self):
-        return Tool(
-            name=self.name,
-            description="Search for files by name using fuzzy matching. Returns closest matching files sorted by similarity.",
+            description=(
+                "Unified fuzzy search for files, tags, or properties in your vault. "
+                "Finds matches using fuzzy string matching (e.g., 'reading' matches '📚 Reading'). "
+                "Perfect for discovery when you don't know exact names. "
+                "Returns ranked results with similarity scores."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Search query to match against file names"
+                        "description": "Search query to fuzzy match. Leave empty to list all items of the specified type."
+                    },
+                    "search_type": {
+                        "type": "string",
+                        "enum": ["files", "tags", "properties"],
+                        "description": "What to search: 'files' for filenames, 'tags' for tags, 'properties' for property names"
                     },
                     "limit": {
                         "type": "integer",
@@ -769,21 +377,147 @@ class FuzzySearchFilesToolHandler(ToolHandler):
                         "maximum": 50
                     }
                 },
-                "required": ["query"]
+                "required": ["search_type"]
             }
         )
 
     def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
-        if "query" not in args:
-            raise RuntimeError("query argument missing in arguments")
+        from difflib import SequenceMatcher
 
+        search_type = args.get("search_type")
+        if search_type not in ["files", "tags", "properties"]:
+            raise RuntimeError(f"Invalid search_type: {search_type}. Must be 'files', 'tags', or 'properties'")
+
+        query = args.get("query", "")
         limit = args.get("limit", 10)
+
         if not isinstance(limit, int) or limit < 1:
             raise RuntimeError(f"Invalid limit: {limit}. Must be a positive integer")
 
         api_key, host, port = get_obsidian_config()
         api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
-        results = api.fuzzy_search_files(args["query"], limit)
+
+        if search_type == "files":
+            # Use existing fuzzy_search_files method
+            if not query:
+                raise RuntimeError("query is required for file search")
+            results = api.fuzzy_search_files(query, limit)
+
+        elif search_type == "tags":
+            # Get all unique tags from the vault using Dataview
+            # Dataview can extract tags more reliably than manual parsing
+            try:
+                # Use Dataview to get all tags
+                dv_query = 'TABLE tags FROM "" WHERE tags'
+                dv_result = api.execute_dataview_query(dv_query, format="json")
+
+                tag_counts = {}
+
+                # Parse Dataview results to extract tags
+                if isinstance(dv_result, dict) and 'values' in dv_result:
+                    for row in dv_result['values']:
+                        # row is typically [file_link, tags_value]
+                        if len(row) >= 2:
+                            tags_value = row[1]
+
+                            # Handle different tag formats
+                            if isinstance(tags_value, list):
+                                # Array of tags
+                                for tag in tags_value:
+                                    if isinstance(tag, str):
+                                        tag_name = tag.lstrip('#').strip()
+                                    elif isinstance(tag, dict) and 'tag' in tag:
+                                        tag_name = tag['tag'].lstrip('#').strip()
+                                    else:
+                                        continue
+
+                                    if tag_name:
+                                        tag_counts[tag_name] = tag_counts.get(tag_name, 0) + 1
+                            elif isinstance(tags_value, str):
+                                # Single tag
+                                tag_name = tags_value.lstrip('#').strip()
+                                if tag_name:
+                                    tag_counts[tag_name] = tag_counts.get(tag_name, 0) + 1
+
+                # If no tags found via Dataview, fall back to manual extraction
+                if not tag_counts:
+                    all_files = api.search_json({"glob": ["*.md", {"var": "path"}]})
+                    for result in all_files[:100]:  # Limit to first 100 files for performance
+                        filepath = result.get('result', '')
+                        if not filepath:
+                            continue
+
+                        try:
+                            metadata = api.get_file_metadata(filepath)
+                            tags = metadata.get('tags', [])
+
+                            if isinstance(tags, list):
+                                for tag in tags:
+                                    if isinstance(tag, dict) and 'tag' in tag:
+                                        tag_name = tag['tag'].lstrip('#').strip()
+                                    elif isinstance(tag, str):
+                                        tag_name = tag.lstrip('#').strip()
+                                    else:
+                                        continue
+
+                                    if tag_name:
+                                        tag_counts[tag_name] = tag_counts.get(tag_name, 0) + 1
+                        except:
+                            continue
+
+                # Fuzzy match against tags
+                if query:
+                    scored_tags = []
+                    for tag, count in tag_counts.items():
+                        score = SequenceMatcher(None, query.lower(), tag.lower()).ratio()
+                        scored_tags.append({
+                            "name": tag,
+                            "score": score,
+                            "file_count": count
+                        })
+
+                    # Sort by score and limit
+                    scored_tags.sort(key=lambda x: x['score'], reverse=True)
+                    results = scored_tags[:limit]
+                else:
+                    # No query - return all tags sorted by file count
+                    results = [
+                        {"name": tag, "score": 1.0, "file_count": count}
+                        for tag, count in sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)
+                    ][:limit]
+
+            except Exception as e:
+                # If everything fails, return error message
+                return [
+                    TextContent(
+                        type="text",
+                        text=json.dumps({
+                            "error": f"Failed to extract tags: {str(e)}",
+                            "results": []
+                        }, indent=2, ensure_ascii=False)
+                    )
+                ]
+
+        elif search_type == "properties":
+            # Get all property names
+            all_properties = api.list_all_properties()
+
+            if query:
+                # Fuzzy match against properties
+                scored_properties = []
+                for prop in all_properties:
+                    score = SequenceMatcher(None, query.lower(), prop.lower()).ratio()
+                    scored_properties.append({
+                        "name": prop,
+                        "score": score
+                    })
+
+                # Sort by score and limit
+                scored_properties.sort(key=lambda x: x['score'], reverse=True)
+                results = scored_properties[:limit]
+            else:
+                # No query - return all properties
+                results = [{"name": prop, "score": 1.0} for prop in all_properties[:limit]]
 
         return [
             TextContent(
@@ -895,6 +629,280 @@ time-completed:
             )
         ]
 
+def _stringify_property_value(value: Any) -> str:
+    """Convert a frontmatter value into a readable string."""
+    if isinstance(value, list):
+        if not value:
+            return "(empty list)"
+        return ", ".join(str(v) for v in value)
+    if isinstance(value, dict):
+        for candidate in ("name", "title", "value", "path", "link"):
+            if candidate in value:
+                return str(value[candidate])
+        return json.dumps(value, ensure_ascii=False)
+    if value is None:
+        return "(empty)"
+    return str(value)
+
+
+def _gather_property_statistics(api: obsidian.Obsidian, folder: str) -> tuple[dict[str, Any], int]:
+    """Collect property usage, sample values, and example files for a folder."""
+    from_clause = f'"{folder}"' if folder else '""'
+    query = f'TABLE file.frontmatter FROM {from_clause} WHERE file.frontmatter'
+    result = api.execute_dataview_query(query, format="json")
+
+    property_stats: dict[str, Any] = {}
+    for item in result:
+        frontmatter = (item.get("result") or {}).get("file.frontmatter") or {}
+        filename = item.get("filename", "")
+        if not isinstance(frontmatter, dict):
+            continue
+
+        for prop, value in frontmatter.items():
+            stats = property_stats.setdefault(prop, {
+                "count": 0,
+                "value_counter": Counter(),
+                "sample_values": [],
+                "sample_files": []
+            })
+            stats["count"] += 1
+
+            value_str = _stringify_property_value(value)
+            stats["value_counter"][value_str] += 1
+
+            if value_str and value_str not in stats["sample_values"]:
+                if len(stats["sample_values"]) < 3:
+                    stats["sample_values"].append(value_str)
+
+            if filename and filename not in stats["sample_files"]:
+                if len(stats["sample_files"]) < 3:
+                    stats["sample_files"].append(filename)
+
+    return property_stats, len(result)
+
+
+class SuggestColumnsToolHandler(ToolHandler):
+    def __init__(self):
+        super().__init__("obsidian_suggest_columns")
+
+    def get_tool_description(self):
+        return Tool(
+            name=self.name,
+            description=(
+                "Discover exactly which properties exist, how frequently they appear, and what values they hold. "
+                "Use it when you need to know the precise frontmatter field names and value keywords before crafting a Dataview query."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "folder": {
+                        "type": "string",
+                        "description": "Optional vault folder to inspect (\"\" or omit to inspect the entire vault)."
+                    },
+                    "property_filter": {
+                        "type": "string",
+                        "description": "Case-insensitive substring to narrow the returned property names (e.g., 'status', 'reading')."
+                    },
+                    "value_filter": {
+                        "type": "string",
+                        "description": "Case-insensitive substring to only surface properties whose values mention the given term (e.g., 'read', 'completed')."
+                    },
+                    "max_properties": {
+                        "type": "integer",
+                        "description": "Maximum number of properties to return (default: 40).",
+                        "default": 40,
+                        "minimum": 1,
+                        "maximum": 100
+                    },
+                    "max_values": {
+                        "type": "integer",
+                        "description": "Limit the number of value counts/matching values per property (default: 5).",
+                        "default": 5,
+                        "minimum": 1,
+                        "maximum": 20
+                    }
+                },
+                "required": []
+            }
+        )
+
+    def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
+        api_key, host, port = get_obsidian_config()
+        api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
+
+        folder = args.get("folder", "")
+        property_filter = args.get("property_filter", "").strip()
+        value_filter = args.get("value_filter", "").strip()
+        max_properties = args.get("max_properties", 40)
+        max_values = args.get("max_values", 5)
+
+        if not isinstance(max_properties, int) or max_properties < 1:
+            raise RuntimeError("max_properties must be a positive integer")
+        if not isinstance(max_values, int) or max_values < 1:
+            raise RuntimeError("max_values must be a positive integer")
+
+        try:
+            property_stats, total_files = _gather_property_statistics(api, folder)
+
+            property_filter_lower = property_filter.lower()
+            value_filter_lower = value_filter.lower()
+            properties_output = []
+
+            for prop, stats in sorted(
+                property_stats.items(),
+                key=lambda item: item[1]["count"],
+                reverse=True
+            ):
+                normalized_name = "".join(ch for ch in prop.lower() if ch.isalnum())
+
+                matches_property = (
+                    not property_filter_lower
+                    or property_filter_lower in prop.lower()
+                    or property_filter_lower in normalized_name
+                )
+
+                value_items = [
+                    {"value": value, "count": count}
+                    for value, count in stats["value_counter"].items()
+                ]
+                value_items.sort(key=lambda item: item["count"], reverse=True)
+
+                matching_values = []
+                if value_filter_lower:
+                    matching_values = [
+                        item for item in value_items
+                        if value_filter_lower in item["value"].lower()
+                    ]
+
+                if property_filter_lower and not matches_property:
+                    continue
+                if value_filter_lower and not matching_values:
+                    continue
+
+                properties_output.append({
+                    "name": prop,
+                    "normalized_name": normalized_name,
+                    "count": stats["count"],
+                    "sample_values": stats["sample_values"],
+                    "sample_files": stats["sample_files"],
+                    "value_counts": value_items[:max_values],
+                    "matching_values": matching_values[:max_values]
+                })
+
+                if len(properties_output) >= max_properties:
+                    break
+
+            output = {
+                "folder": folder if folder else "entire vault",
+                "total_files_analyzed": total_files,
+                "properties_returned": len(properties_output),
+                "properties": properties_output
+            }
+
+            return [
+                TextContent(
+                    type="text",
+                    text=json.dumps(output, indent=2, ensure_ascii=False)
+                )
+            ]
+
+        except Exception as e:
+            return [
+                TextContent(
+                    type="text",
+                    text=json.dumps({
+                        "error": f"Failed to analyze folder: {str(e)}",
+                        "folder": folder
+                    }, indent=2, ensure_ascii=False)
+                )
+            ]
+
+
+class GetPropertyValuesToolHandler(ToolHandler):
+    def __init__(self):
+        super().__init__("obsidian_get_property_values")
+
+    def get_tool_description(self):
+        return Tool(
+            name=self.name,
+            description=(
+                "Inspect an individual property and see the most common values it takes, plus sample files. "
+                "Use obsidian_suggest_columns to discover property names before calling this tool."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "property_name": {
+                        "type": "string",
+                        "description": "Property name to get values for (e.g., 'reading_status', 'platform', 'status')"
+                    },
+                    "folder": {
+                        "type": "string",
+                        "description": "Optional: folder path to search in (e.g., 'Reading/Books'). Omit to search entire vault."
+                    },
+                    "max_values": {
+                        "type": "integer",
+                        "description": "Limit the number of value counts returned (default: 20).",
+                        "default": 20,
+                        "minimum": 1,
+                        "maximum": 100
+                    }
+                },
+                "required": ["property_name"]
+            }
+        )
+
+    def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
+        if "property_name" not in args:
+            raise RuntimeError("property_name argument required")
+
+        api_key, host, port = get_obsidian_config()
+        api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
+
+        property_name = args["property_name"]
+        folder = args.get("folder", "")
+        max_values = args.get("max_values", 20)
+
+        if not isinstance(max_values, int) or max_values < 1:
+            raise RuntimeError("max_values must be a positive integer")
+
+        property_stats, _ = _gather_property_statistics(api, folder)
+        stats = property_stats.get(property_name)
+        if not stats:
+            return [
+                TextContent(
+                    type="text",
+                    text=json.dumps({
+                        "error": f"Property '{property_name}' not found in folder '{folder or 'entire vault'}'.",
+                        "property": property_name,
+                        "folder": folder or "entire vault"
+                    }, indent=2, ensure_ascii=False)
+                )
+            ]
+
+        value_counts = [
+            {"value": value, "count": count}
+            for value, count in stats["value_counter"].items()
+        ]
+        value_counts.sort(key=lambda x: x['count'], reverse=True)
+
+        output = {
+            "property": property_name,
+            "folder": folder if folder else "entire vault",
+            "total_unique_values": len(value_counts),
+            "sample_values": stats["sample_values"],
+            "sample_files": stats["sample_files"],
+            "values": value_counts[:max_values]
+        }
+
+        return [
+            TextContent(
+                type="text",
+                text=json.dumps(output, indent=2, ensure_ascii=False)
+            )
+        ]
+
+
 class DataviewQueryToolHandler(ToolHandler):
     def __init__(self):
         super().__init__("obsidian_dataview_query")
@@ -903,14 +911,30 @@ class DataviewQueryToolHandler(ToolHandler):
         return Tool(
             name=self.name,
             description=(
-                "Execute Dataview TABLE queries for flexible data retrieval from your Obsidian vault. "
-                "IMPORTANT: Only TABLE queries are supported (not LIST or TASK). "
-                "Use WHERE clauses, comparison operators, SORT, LIMIT, and GROUP BY for complex filtering. "
-                "Perfect for filtering books by rating, finding high-priority tasks, or aggregating data across files. "
-                "\n\nExample queries:"
-                "\n- TABLE title, author, rating FROM \"Reading/Books\" WHERE reading_status = \"📚 Reading\""
-                "\n- TABLE file.link, status, priority FROM \"Work\" WHERE status = \"⚡ In-Progress\" AND priority = \"🔴 High\""
-                "\n- TABLE game_title, platform, rating FROM \"Gaming/Games\" WHERE play_status = \"🎮 Playing\" SORT rating DESC"
+                "Execute Dataview TABLE queries - the PRIMARY tool for searching, filtering, and aggregating vault data. "
+                "This powerful query engine REPLACES many specialized tools. Use it for:\n"
+                "• Finding files by properties (status, tags, dates)\n"
+                "• Searching file content with contains() function\n"
+                "• Getting recent files with file.mtime\n"
+                "• Listing all property values (just SELECT the property column)\n"
+                "• Complex filtering with AND/OR logic\n\n"
+                "IMPORTANT: Only TABLE queries are supported (not LIST or TASK).\n\n"
+                "Common patterns:\n"
+                "• Search content: TABLE file.link FROM \"\" WHERE contains(file.content, \"keyword\")\n"
+                "• Recent files: TABLE file.link, file.mtime FROM \"\" SORT file.mtime DESC LIMIT 10\n"
+                "• Files by property: TABLE file.link, status FROM \"Work\" WHERE status = \"⚡ In-Progress\"\n"
+                "• All property values: TABLE reading_status FROM \"Reading/Books\" WHERE reading_status\n"
+                "• Group by property: TABLE rows.file.link FROM \"Reading/Books\" WHERE reading_status GROUP BY reading_status\n"
+                "• Search in arrays: TABLE file.link FROM \"\" WHERE contains(tags, \"reading\")\n"
+                "• Multiple conditions: TABLE title, rating FROM \"Reading/Books\" WHERE rating >= 4 AND contains(author, \"Smith\")\n"
+                "• All files with property: TABLE file.link, tags FROM \"\" WHERE tags\n\n"
+                "SYNTAX NOTES:\n"
+                "• Use contains(field, \"value\") NOT field CONTAINS \"value\"\n"
+                "• To list all values of a property: TABLE property_name FROM folder WHERE property_name\n"
+                "• GROUP BY creates groups - use 'rows' to access items: TABLE rows.file.link FROM folder GROUP BY property\n"
+                "• Arrays/tags: Use contains(tags, \"tag-name\") to search within tag arrays\n"
+                "• format='json' for easier programmatic parsing of results\n\n"
+                "Use obsidian_fuzzy_search to discover available properties and tags first."
             ),
             inputSchema={
                 "type": "object",
@@ -918,14 +942,20 @@ class DataviewQueryToolHandler(ToolHandler):
                     "query": {
                         "type": "string",
                         "description": (
-                            "DQL TABLE query string. Format: TABLE <columns> FROM \"<folder>\" [WHERE <conditions>] [SORT <column> ASC|DESC] [LIMIT <n>]\n"
-                            "Supported features:\n"
-                            "- Columns: Property names, file.link, file.name, file.mtime, etc.\n"
-                            "- FROM: Folder path in quotes (e.g., \"Reading/Books\")\n"
-                            "- WHERE: Filters with =, !=, <, >, <=, >=, contains, AND, OR\n"
-                            "- SORT: Column name with ASC/DESC\n"
-                            "- LIMIT: Number of results\n"
-                            "Example: 'TABLE title, author FROM \"Reading/Books\" WHERE rating >= 4 SORT title ASC LIMIT 10'"
+                            "DQL TABLE query string. Format: TABLE <columns> FROM \"<folder>\" [WHERE <conditions>] [SORT <column> ASC|DESC] [LIMIT <n>]\n\n"
+                            "Key syntax:\n"
+                            "• Columns: property names, file.link, file.name, file.mtime, file.content\n"
+                            "• FROM: Folder path in quotes (\"\" = all files, \"Folder/Path\" = specific folder)\n"
+                            "• WHERE: Use =, !=, <, >, <=, >=, AND, OR\n"
+                            "• contains(field, \"text\"): Search within field (use for arrays/tags/text)\n"
+                            "• GROUP BY property: Groups results - use 'rows' to access grouped items\n"
+                            "• SORT column ASC/DESC: Order results\n"
+                            "• LIMIT n: Max results\n\n"
+                            "Examples:\n"
+                            "TABLE title, author FROM \"Reading/Books\" WHERE rating >= 4\n"
+                            "TABLE reading_status FROM \"Reading/Books\" WHERE reading_status\n"
+                            "TABLE rows.file.link FROM \"Work\" WHERE status GROUP BY status\n"
+                            "TABLE file.link FROM \"\" WHERE contains(tags, \"project\")"
                         )
                     },
                     "format": {
@@ -953,116 +983,5 @@ class DataviewQueryToolHandler(ToolHandler):
             TextContent(
                 type="text",
                 text=result if format_type == "markdown_table" else json.dumps(result, indent=2, ensure_ascii=False)
-            )
-        ]
-
-class SuggestColumnsToolHandler(ToolHandler):
-    def __init__(self):
-        super().__init__("obsidian_suggest_columns")
-
-    def get_tool_description(self):
-        return Tool(
-            name=self.name,
-            description=(
-                "Suggest relevant columns for Dataview queries based on content type. "
-                "Discovers available frontmatter properties in a specific folder or across the vault, "
-                "helping you build accurate TABLE queries. Use this before obsidian_dataview_query "
-                "to understand what fields are available for querying."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "folder": {
-                        "type": "string",
-                        "description": (
-                            "Folder path to analyze (e.g., 'Reading/Books', 'Gaming/Games', 'Work/Turing/Projects'). "
-                            "Omit to analyze all files in the vault."
-                        )
-                    },
-                    "content_type": {
-                        "type": "string",
-                        "enum": ["books", "games", "tasks", "all"],
-                        "default": "all",
-                        "description": "Filter suggestions by content type for more relevant results"
-                    }
-                },
-                "required": []
-            }
-        )
-
-    def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
-        api_key, host, port = get_obsidian_config()
-        api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
-
-        folder = args.get("folder")
-        content_type = args.get("content_type", "all")
-
-        # Get all properties
-        all_properties = api.list_all_properties()
-
-        # If folder is specified, filter to only properties found in that folder
-        if folder:
-            # Use JsonLogic to find files in the folder and extract their properties
-            query = {
-                "and": [
-                    {"glob": [f"{folder}/*.md", {"var": "path"}]},
-                    {"var": "frontmatter"}
-                ]
-            }
-
-            try:
-                results = api.search_json(query)
-                folder_properties = set()
-                for result in results:
-                    if isinstance(result.get('result'), dict):
-                        folder_properties.update(result['result'].keys())
-
-                all_properties = sorted(list(folder_properties))
-            except Exception as e:
-                # If folder search fails, fall back to all properties
-                pass
-
-        # Define common property sets by content type
-        property_suggestions = {
-            "books": {
-                "common": ["title", "author", "reading_status", "rating", "publication_date", "series", "genres"],
-                "additional": ["publisher", "pages", "isbn", "date_started", "date_finished", "calibre_id"]
-            },
-            "games": {
-                "common": ["game_title", "platform", "play_status", "rating", "genre", "release_date"],
-                "additional": ["developer", "publisher", "game_modes", "themes", "rating", "igdb_id"]
-            },
-            "tasks": {
-                "common": ["status", "priority", "project", "created", "time-completed", "due"],
-                "additional": ["tags", "file.link", "file.mtime"]
-            }
-        }
-
-        # Build response based on content type
-        if content_type != "all" and content_type in property_suggestions:
-            suggestions = property_suggestions[content_type]
-            available_common = [p for p in suggestions["common"] if p in all_properties]
-            available_additional = [p for p in suggestions["additional"] if p in all_properties]
-
-            response_text = f"# Suggested Columns for {content_type.capitalize()}\n\n"
-            response_text += "## Common Properties\n"
-            response_text += ", ".join(available_common) + "\n\n"
-            response_text += "## Additional Properties\n"
-            response_text += ", ".join(available_additional) + "\n\n"
-            response_text += "## All Available Properties\n"
-            response_text += ", ".join(all_properties)
-        else:
-            response_text = f"# Available Properties{' in ' + folder if folder else ''}\n\n"
-            response_text += ", ".join(all_properties)
-            response_text += "\n\n## Common Query Patterns\n"
-            response_text += "- Books: title, author, reading_status, rating\n"
-            response_text += "- Games: game_title, platform, play_status, rating\n"
-            response_text += "- Tasks: status, priority, project, created, due\n"
-            response_text += "- Files: file.link, file.name, file.mtime, file.ctime\n"
-
-        return [
-            TextContent(
-                type="text",
-                text=response_text
             )
         ]

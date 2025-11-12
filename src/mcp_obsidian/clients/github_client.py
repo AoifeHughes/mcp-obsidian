@@ -38,28 +38,56 @@ class GitHubClient:
         """Fetch issue data from GitHub API"""
         # Parse the URL
         parts = self.parse_github_url(github_url)
-        
+
         # GitHub API endpoint
-        api_url = f"https://api.github.com/repos/{parts['owner']}/{parts['repo']}/issues/{parts['issue_number']}"
-        
+        api_url = f"https://api.github.com/repos/{parts['owner']}/{parts['repo']}/issues/{parts['number']}"
+
         response = self.session.get(api_url)
-        
+
         if response.status_code != 200:
             raise Exception(f"Failed to fetch issue: {response.status_code} {response.text}")
-            
+
         return response.json()
-        
+
+    def fetch_pull_request(self, github_url: str) -> Dict[str, Any]:
+        """Fetch pull request data from GitHub API"""
+        # Parse the URL
+        parts = self.parse_github_url(github_url)
+
+        # GitHub API endpoint for PRs
+        api_url = f"https://api.github.com/repos/{parts['owner']}/{parts['repo']}/pulls/{parts['number']}"
+
+        response = self.session.get(api_url)
+
+        if response.status_code != 200:
+            raise Exception(f"Failed to fetch pull request: {response.status_code} {response.text}")
+
+        return response.json()
+
     def parse_github_url(self, url: str) -> Dict[str, str]:
-        """Parse GitHub issue URL to extract owner, repo, and issue number"""
-        # Pattern: https://github.com/owner/repo/issues/number
-        pattern = r'https://github\.com/([^/]+)/([^/]+)/issues/(\d+)'
-        match = re.match(pattern, url)
-        
-        if not match:
-            raise ValueError(f"Invalid GitHub issue URL: {url}")
-            
-        return {
-            'owner': match.group(1),
-            'repo': match.group(2),
-            'issue_number': match.group(3)
-        }
+        """Parse GitHub issue or PR URL to extract owner, repo, number, and type"""
+        # Pattern for issues: https://github.com/owner/repo/issues/number
+        issue_pattern = r'https://github\.com/([^/]+)/([^/]+)/issues/(\d+)'
+        issue_match = re.match(issue_pattern, url)
+
+        if issue_match:
+            return {
+                'owner': issue_match.group(1),
+                'repo': issue_match.group(2),
+                'number': issue_match.group(3),
+                'type': 'issue'
+            }
+
+        # Pattern for PRs: https://github.com/owner/repo/pull/number
+        pr_pattern = r'https://github\.com/([^/]+)/([^/]+)/pull/(\d+)'
+        pr_match = re.match(pr_pattern, url)
+
+        if pr_match:
+            return {
+                'owner': pr_match.group(1),
+                'repo': pr_match.group(2),
+                'number': pr_match.group(3),
+                'type': 'pull_request'
+            }
+
+        raise ValueError(f"Invalid GitHub issue or PR URL: {url}. Expected format: https://github.com/owner/repo/issues/number or https://github.com/owner/repo/pull/number")

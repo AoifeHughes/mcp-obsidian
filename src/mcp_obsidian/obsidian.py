@@ -57,18 +57,24 @@ class Obsidian():
 
         
     def list_files_in_dir(self, dirpath: str) -> Any:
-        url = f"{self.get_base_url()}/vault/{dirpath}/"
-        
+        # Remove trailing slash if present to avoid double slashes
+        dirpath = dirpath.rstrip('/')
+        # URL encode the path to handle spaces and special characters
+        encoded_path = urllib.parse.quote(dirpath)
+        url = f"{self.get_base_url()}/vault/{encoded_path}/"
+
         def call_fn():
             response = requests.get(url, headers=self._get_headers(), verify=self.verify_ssl, timeout=self.timeout)
             response.raise_for_status()
-            
+
             return response.json()['files']
 
         return self._safe_call(call_fn)
 
     def get_file_contents(self, filepath: str) -> Any:
-        url = f"{self.get_base_url()}/vault/{filepath}"
+        # URL encode the path to handle spaces and special characters
+        encoded_path = urllib.parse.quote(filepath)
+        url = f"{self.get_base_url()}/vault/{encoded_path}"
 
         def call_fn():
             response = requests.get(url, headers=self._get_headers(), verify=self.verify_ssl, timeout=self.timeout)
@@ -91,7 +97,9 @@ class Obsidian():
             - stat: File statistics (ctime, mtime, size)
             - path: File path
         """
-        url = f"{self.get_base_url()}/vault/{filepath}"
+        # URL encode the path to handle spaces and special characters
+        encoded_path = urllib.parse.quote(filepath)
+        url = f"{self.get_base_url()}/vault/{encoded_path}"
 
         def call_fn():
             headers = self._get_headers()
@@ -146,12 +154,14 @@ class Obsidian():
         return self._safe_call(call_fn)
     
     def append_content(self, filepath: str, content: str) -> Any:
-        url = f"{self.get_base_url()}/vault/{filepath}"
-        
+        # URL encode the path to handle spaces and special characters
+        encoded_path = urllib.parse.quote(filepath)
+        url = f"{self.get_base_url()}/vault/{encoded_path}"
+
         def call_fn():
             response = requests.post(
-                url, 
-                headers=self._get_headers() | {'Content-Type': 'text/markdown'}, 
+                url,
+                headers=self._get_headers() | {'Content-Type': 'text/markdown'},
                 data=content,
                 verify=self.verify_ssl,
                 timeout=self.timeout
@@ -162,15 +172,17 @@ class Obsidian():
         return self._safe_call(call_fn)
     
     def patch_content(self, filepath: str, operation: str, target_type: str, target: str, content: str) -> Any:
-        url = f"{self.get_base_url()}/vault/{filepath}"
-        
+        # URL encode the path to handle spaces and special characters
+        encoded_path = urllib.parse.quote(filepath)
+        url = f"{self.get_base_url()}/vault/{encoded_path}"
+
         headers = self._get_headers() | {
             'Content-Type': 'text/markdown',
             'Operation': operation,
             'Target-Type': target_type,
             'Target': urllib.parse.quote(target)
         }
-        
+
         def call_fn():
             response = requests.patch(url, headers=headers, data=content, verify=self.verify_ssl, timeout=self.timeout)
             response.raise_for_status()
@@ -179,12 +191,14 @@ class Obsidian():
         return self._safe_call(call_fn)
 
     def put_content(self, filepath: str, content: str) -> Any:
-        url = f"{self.get_base_url()}/vault/{filepath}"
-        
+        # URL encode the path to handle spaces and special characters
+        encoded_path = urllib.parse.quote(filepath)
+        url = f"{self.get_base_url()}/vault/{encoded_path}"
+
         def call_fn():
             response = requests.put(
-                url, 
-                headers=self._get_headers() | {'Content-Type': 'text/markdown'}, 
+                url,
+                headers=self._get_headers() | {'Content-Type': 'text/markdown'},
                 data=content,
                 verify=self.verify_ssl,
                 timeout=self.timeout
@@ -196,20 +210,22 @@ class Obsidian():
     
     def delete_file(self, filepath: str) -> Any:
         """Delete a file or directory from the vault.
-        
+
         Args:
             filepath: Path to the file to delete (relative to vault root)
-            
+
         Returns:
             None on success
         """
-        url = f"{self.get_base_url()}/vault/{filepath}"
-        
+        # URL encode the path to handle spaces and special characters
+        encoded_path = urllib.parse.quote(filepath)
+        url = f"{self.get_base_url()}/vault/{encoded_path}"
+
         def call_fn():
             response = requests.delete(url, headers=self._get_headers(), verify=self.verify_ssl, timeout=self.timeout)
             response.raise_for_status()
             return None
-            
+
         return self._safe_call(call_fn)
     
     def search_json(self, query: dict) -> Any:

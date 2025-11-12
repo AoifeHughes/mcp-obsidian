@@ -11,16 +11,17 @@ MCP server to interact with Obsidian via the Local REST API community plugin.
 The server implements multiple tools to interact with Obsidian:
 
 #### Core File Operations
-- **list_files_in_vault**: Lists all files and directories in the root directory of your Obsidian vault
-- **list_files_in_dir**: Lists all files and directories in a specific Obsidian directory
-- **get_file_contents**: Return the content of a single file in your vault
-- **batch_get_file_contents**: Get contents of multiple files at once
-- **search**: Search for documents matching a specified text query across all files in the vault
-- **complex_search**: Advanced search using JsonLogic or Dataview Query Language
-- **patch_content**: Insert content into an existing note relative to a heading, block reference, or frontmatter field
-- **append_content**: Append content to a new or existing file in the vault
-- **put_content**: Create or completely replace file content
-- **delete_file**: Delete a file or directory from your vault
+- `obsidian_list_files`: List files and directories inside your vault root or a specific subfolder.
+- `obsidian_get_file_contents`: Read a single file (or batch of files) with optional metadata such as tags and frontmatter.
+- `obsidian_append_content`: Append markdown to an existing note without overwriting the rest of the file.
+- `obsidian_patch_content`: Insert or replace content relative to a heading, block reference, or frontmatter property.
+- `obsidian_put_content`: Create a new file or overwrite an existing one in one shot (use carefully).
+
+#### Discovery & Query
+- `obsidian_fuzzy_search`: Fuzzy search over filenames, tags, or property names when you only know part of a term.
+- `obsidian_suggest_columns`: The primary property-discovery tool. It lists every frontmatter field, how often it appears, which values it contains, and lets you filter by property or value substrings to find terms like “completed,” “read,” or “📚 Read.”
+- `obsidian_get_property_values`: Narrow in on a known property to see the most common values, sample files, and how often each value appears.
+- `obsidian_dataview_query`: Run arbitrary Dataview TABLE queries for full power once you know the property structure.
 
 #### Periodic Notes
 - **get_periodic_note**: Get current periodic note (daily, weekly, monthly, quarterly, yearly)
@@ -226,3 +227,50 @@ You can also watch the server logs with this command:
 ```bash
 tail -n 20 -f ~/Library/Logs/Claude/mcp-server-mcp-obsidian.log
 ```
+
+### Converting Tools to OpenAI Format
+
+The MCP server includes a utility script to convert all tool definitions to OpenAI-compatible function call format. This is useful if you want to use the Obsidian tools with OpenAI's API or other systems that support OpenAI function calling.
+
+**Generate JSON to stdout:**
+```bash
+python -m src.mcp_obsidian.convert_to_openai_tools --pretty
+```
+
+**Save to a file:**
+```bash
+python -m src.mcp_obsidian.convert_to_openai_tools --output openai_tools.json --pretty
+```
+
+**Create separate JSON files for each tool:**
+```bash
+python -m src.mcp_obsidian.convert_to_openai_tools --separate --output-dir ./tools/
+```
+
+The output format matches OpenAI's function calling schema:
+```json
+{
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "obsidian_list_files",
+        "description": "List files/directories in vault...",
+        "parameters": {
+          "type": "object",
+          "properties": {...},
+          "required": [...]
+        }
+      }
+    }
+  ]
+}
+```
+
+**Important Note on Tool Execution:**
+The generated JSON contains only tool schemas/definitions. To actually execute the tools:
+1. Keep the MCP server running as normal
+2. When OpenAI calls a tool, proxy the call back to your running MCP server instance
+3. The MCP server handles all the actual tool execution logic
+
+This approach allows you to use OpenAI's function calling interface while leveraging the existing MCP server for tool execution.

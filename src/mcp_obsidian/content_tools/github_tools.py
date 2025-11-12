@@ -38,13 +38,13 @@ class GitHubToolHandler:
         return [
             Tool(
                 name="obsidian_import_github_issue",
-                description="Import a GitHub issue as an Obsidian task. Uses AI to extract priority, tags, and action items from the issue content.",
+                description="Import a GitHub issue or Pull Request as an Obsidian task. Uses AI to extract priority, tags, and action items from the issue/PR content.",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "github_url": {
                             "type": "string",
-                            "description": "GitHub issue URL (e.g., https://github.com/owner/repo/issues/123)",
+                            "description": "GitHub issue or PR URL (e.g., https://github.com/owner/repo/issues/123 or https://github.com/owner/repo/pull/456)",
                             "format": "uri"
                         },
                         "project_folder": {
@@ -70,28 +70,38 @@ class GitHubToolHandler:
             raise ValueError(f"Unknown tool: {tool_name}")
 
     def _import_issue(self, args: Dict[str, Any]) -> Sequence[TextContent]:
-        """Import a GitHub issue as an Obsidian task"""
+        """Import a GitHub issue or Pull Request as an Obsidian task"""
         github_url = args["github_url"]
         project_folder = args["project_folder"]
         use_llm = args.get("use_llm", True)
 
         try:
-            # Fetch issue data from GitHub
-            issue_data = self.github_client.fetch_issue(github_url)
+            # Parse URL to determine type (issue or PR)
+            url_parts = self.github_client.parse_github_url(github_url)
+            is_pull_request = url_parts['type'] == 'pull_request'
+
+            # Fetch data from GitHub
+            if is_pull_request:
+                data = self.github_client.fetch_pull_request(github_url)
+                data['type'] = 'pull_request'
+            else:
+                data = self.github_client.fetch_issue(github_url)
+                data['type'] = 'issue'
 
             # Extract task information
             if use_llm:
-                task_info = self._extract_task_info_with_llm(issue_data, project_folder)
+                task_info = self._extract_task_info_with_llm(data, project_folder)
             else:
-                task_info = self._extract_task_info_simple(issue_data, project_folder)
+                task_info = self._extract_task_info_simple(data, project_folder)
 
             # Create the task file
             filepath = self._create_task_file(task_info, project_folder)
 
+            item_type = "Pull Request" if is_pull_request else "issue"
             return [
                 TextContent(
                     type="text",
-                    text=f"✅ Created task from GitHub issue: {filepath}\n\nTitle: {task_info['title']}\nPriority: {task_info['priority']}\nIssue: #{task_info['github_issue_number']}"
+                    text=f"✅ Created task from GitHub {item_type}: {filepath}\n\nTitle: {task_info['title']}\nPriority: {task_info['priority']}\n{item_type.title()}: #{task_info['github_number']}"
                 )
             ]
 
@@ -99,24 +109,26 @@ class GitHubToolHandler:
             return [
                 TextContent(
                     type="text",
-                    text=f"❌ Error importing issue: {str(e)}"
+                    text=f"❌ Error importing issue/PR: {str(e)}"
                 )
             ]
 
-    def _extract_task_info_simple(self, issue_data: Dict[str, Any], project_folder: str) -> Dict[str, Any]:
+    def _extract_task_info_simple(self, data: Dict[str, Any], project_folder: str) -> Dict[str, Any]:
         """Extract task info without LLM (simple extraction)"""
+        is_pr = data.get('type') == 'pull_request'
+
         # Determine priority from labels
         priority = "🟡 Medium"
-        labels = [label['name'].lower() for label in issue_data.get('labels', [])]
+        labels = [label['name'].lower() for label in data.get('labels', [])]
 
         if any(l in labels for l in ['critical', 'urgent', 'high']):
             priority = "🔴 High"
         elif any(l in labels for l in ['low', 'minor']):
             priority = "🟢 Low"
 
-        # Extract action items from issue body
+        # Extract action items from body
         action_items = []
-        body = issue_data.get('body', '') or ''
+        body = data.get('body', '') or ''
 
         # Look for task lists
         task_pattern = r'-\s*\[[ x]\]\s*(.+)'
@@ -124,57 +136,92 @@ class GitHubToolHandler:
         action_items.extend(tasks[:5])  # Limit to 5 items
 
         if not action_items:
-            action_items = [f"Review and implement issue #{issue_data['number']}"]
+            item_type = "PR" if is_pr else "issue"
+            action_items = [f"Review and implement {item_type} #{data['number']}"]
 
         # Generate tags from labels
-        tags = [label['name'].lower().replace(' ', '-') for label in issue_data.get('labels', [])]
+        tags = [label['name'].lower().replace(' ', '-') for label in data.get('labels', [])]
+
+        # Add type-specific tags
+        if is_pr:
+            tags.append('pull-request')
+        else:
+            tags.append('github-issue')
+
+        # Build resources list
+        resources = []
+        if is_pr:
+            # Add branch information for PRs
+            if data.get('head', {}).get('ref'):
+                resources.append(f"Branch: {data['head']['ref']}")
+            if data.get('base', {}).get('ref'):
+                resources.append(f"Target: {data['base']['ref']}")
 
         return {
-            'title': issue_data['title'],
+            'title': data['title'],
             'priority': priority,
             'tags': tags,
-            'summary': (issue_data.get('body', '') or '')[:500],  # First 500 chars
+            'summary': (data.get('body', '') or '')[:500],  # First 500 chars
             'action_items': action_items,
-            'github_url': issue_data['html_url'],
-            'github_issue_number': issue_data['number'],
-            'github_repo': f"{issue_data['html_url'].split('/')[3]}/{issue_data['html_url'].split('/')[4]}",
-            'resources': []
+            'github_url': data['html_url'],
+            'github_number': data['number'],
+            'github_type': 'pull_request' if is_pr else 'issue',
+            'github_repo': f"{data['html_url'].split('/')[3]}/{data['html_url'].split('/')[4]}",
+            'resources': resources,
+            'pr_info': {
+                'head_branch': data.get('head', {}).get('ref'),
+                'base_branch': data.get('base', {}).get('ref'),
+                'mergeable': data.get('mergeable'),
+                'merged': data.get('merged', False)
+            } if is_pr else None
         }
 
-    def _extract_task_info_with_llm(self, issue_data: Dict[str, Any], project_folder: str) -> Dict[str, Any]:
+    def _extract_task_info_with_llm(self, data: Dict[str, Any], project_folder: str) -> Dict[str, Any]:
         """Extract task info using LLM for intelligent parsing"""
+        is_pr = data.get('type') == 'pull_request'
+
         try:
             from openai import OpenAI
 
             client = OpenAI(base_url=self.llm_api_base, api_key="sk-placeholder")
 
-            system_prompt = """You are a task extraction assistant. Given a GitHub issue, extract relevant information to create an Obsidian task.
+            item_type = "Pull Request" if is_pr else "issue"
+            system_prompt = f"""You are a task extraction assistant. Given a GitHub {item_type}, extract relevant information to create an Obsidian task.
 
 Return a JSON object with these fields:
 - title: A concise task title (max 100 chars)
-- priority: One of "🟢 Low", "🟡 Medium", "🔴 High", "🟣 Ultra-High" based on issue labels and content
+- priority: One of "🟢 Low", "🟡 Medium", "🔴 High", "🟣 Ultra-High" based on labels and content
 - tags: Array of relevant tags (lowercase, hyphenated)
-- summary: A brief summary of the issue (2-3 sentences)
-- action_items: Array of specific action items extracted from the issue
-- resources: Array of relevant URLs mentioned in the issue
+- summary: A brief summary (2-3 sentences)
+- action_items: Array of specific action items extracted from the content
+- resources: Array of relevant URLs mentioned in the content
 
-Analyze the issue labels, title, and body to determine appropriate priority and tags."""
+Analyze the labels, title, and body to determine appropriate priority and tags."""
 
-            issue_content = f"""
-GitHub Issue #{issue_data['number']}: {issue_data['title']}
-URL: {issue_data['html_url']}
-State: {issue_data['state']}
-Labels: {', '.join([label['name'] for label in issue_data.get('labels', [])])}
-Created: {issue_data['created_at']}
-Author: {issue_data['user']['login']}
+            pr_specific = ""
+            if is_pr:
+                pr_specific = f"""
+Head Branch: {data.get('head', {}).get('ref', 'N/A')}
+Base Branch: {data.get('base', {}).get('ref', 'N/A')}
+Mergeable: {data.get('mergeable', 'Unknown')}
+Merged: {data.get('merged', False)}
+"""
+
+            content = f"""
+GitHub {item_type} #{data['number']}: {data['title']}
+URL: {data['html_url']}
+State: {data['state']}
+Labels: {', '.join([label['name'] for label in data.get('labels', [])])}
+Created: {data['created_at']}
+Author: {data['user']['login']}{pr_specific}
 
 Body:
-{issue_data.get('body', 'No description provided')}
+{data.get('body', 'No description provided')}
 """
 
             messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Extract task information from this GitHub issue:\n\n{issue_content}"}
+                {"role": "user", "content": f"Extract task information from this GitHub {item_type}:\n\n{content}"}
             ]
 
             # Define the expected JSON structure
@@ -215,9 +262,21 @@ Body:
                 task_info = json.loads(tool_call.function.arguments)
 
                 # Add metadata
-                task_info['github_url'] = issue_data['html_url']
-                task_info['github_issue_number'] = issue_data['number']
-                task_info['github_repo'] = f"{issue_data['html_url'].split('/')[3]}/{issue_data['html_url'].split('/')[4]}"
+                task_info['github_url'] = data['html_url']
+                task_info['github_number'] = data['number']
+                task_info['github_type'] = 'pull_request' if is_pr else 'issue'
+                task_info['github_repo'] = f"{data['html_url'].split('/')[3]}/{data['html_url'].split('/')[4]}"
+
+                # Add PR-specific info
+                if is_pr:
+                    task_info['pr_info'] = {
+                        'head_branch': data.get('head', {}).get('ref'),
+                        'base_branch': data.get('base', {}).get('ref'),
+                        'mergeable': data.get('mergeable'),
+                        'merged': data.get('merged', False)
+                    }
+                else:
+                    task_info['pr_info'] = None
 
                 return task_info
 
@@ -225,10 +284,12 @@ Body:
             print(f"⚠️  LLM extraction failed, using simple extraction: {e}")
 
         # Fallback to simple extraction
-        return self._extract_task_info_simple(issue_data, project_folder)
+        return self._extract_task_info_simple(data, project_folder)
 
     def _create_task_file(self, task_info: Dict[str, Any], project_folder: str) -> str:
         """Create an Obsidian task file from extracted information"""
+        is_pr = task_info.get('github_type') == 'pull_request'
+
         # Extract project name from folder path
         project_name = project_folder.split('/')[-1]
 
@@ -239,7 +300,7 @@ Body:
         filepath = f"{project_folder}/{filename}"
 
         # Format tags for YAML
-        tags_list = [project_name.replace(' ', '-').lower(), 'github-issue']
+        tags_list = [project_name.replace(' ', '-').lower()]
         if task_info.get('tags'):
             tags_list.extend(task_info['tags'])
 
@@ -248,12 +309,22 @@ Body:
         # Build action items list
         action_items_md = '\n'.join(f"- [ ] {item}" for item in task_info['action_items'])
         if not action_items_md:
-            action_items_md = f"- [ ] Review and implement GitHub issue requirements"
+            item_type = "PR" if is_pr else "issue"
+            action_items_md = f"- [ ] Review and implement GitHub {item_type} requirements"
 
         # Build resources list
-        resources_md = f"- [GitHub Issue #{task_info['github_issue_number']}]({task_info['github_url']})"
+        item_label = "Pull Request" if is_pr else "Issue"
+        resources_md = f"- [GitHub {item_label} #{task_info['github_number']}]({task_info['github_url']})"
         if task_info.get('resources'):
-            resources_md += '\n' + '\n'.join(f"- {url}" for url in task_info['resources'])
+            resources_md += '\n' + '\n'.join(f"- {resource}" for resource in task_info['resources'])
+
+        # Build PR-specific frontmatter fields
+        pr_fields = ""
+        if is_pr and task_info.get('pr_info'):
+            pr_info = task_info['pr_info']
+            pr_fields = f"""github_pr_head: {pr_info.get('head_branch', 'N/A')}
+github_pr_base: {pr_info.get('base_branch', 'N/A')}
+github_pr_merged: {pr_info.get('merged', False)}"""
 
         # Create content
         content = f"""---
@@ -266,8 +337,10 @@ tags:
 created: {datetime.now().strftime("%Y-%m-%d %H:%M")}
 time-completed:
 github_url: {task_info['github_url']}
-github_issue: {task_info['github_issue_number']}
+github_type: {task_info['github_type']}
+github_number: {task_info['github_number']}
 github_repo: {task_info['github_repo']}
+{pr_fields}
 ---
 
 ## Meta Data Buttons
