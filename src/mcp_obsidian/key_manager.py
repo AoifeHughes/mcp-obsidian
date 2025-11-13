@@ -134,6 +134,23 @@ class KeyManager:
         keys = self.load_keys()
         return keys["github"].get("token", "")
 
+    # Steam API Keys
+    def get_steam_keys(self) -> Tuple[str, str]:
+        """Get Steam API key and SteamID64"""
+        keys = self.load_keys()
+        return (
+            keys["steam"]["api_key"],
+            keys["steam"]["steamid64"]
+        )
+
+    def get_steam_api_key(self) -> str:
+        """Get Steam API key"""
+        return self.get_steam_keys()[0]
+
+    def get_steam_id(self) -> str:
+        """Get Steam ID (SteamID64)"""
+        return self.get_steam_keys()[1]
+
     # Generic getter for any key path
     def get(self, key_path: str) -> Any:
         """

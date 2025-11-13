@@ -64,7 +64,7 @@ content_tools_loaded = 0
 content_tools_failed = []
 
 try:
-    from .content_tools import GameToolHandler, BookToolHandler, GitHubToolHandler
+    from .content_tools import GameToolHandler, BookToolHandler, GitHubToolHandler, SteamToolHandler
 
     # Register game tools
     try:
@@ -101,6 +101,18 @@ try:
     except Exception as e:
         content_tools_failed.append(f"GitHub tools: {str(e)}")
         logger.warning(f"⚠️  GitHub tools not available: {e}")
+
+    # Register Steam tools
+    try:
+        steam_handler = SteamToolHandler()
+        for tool_desc in steam_handler.get_tool_descriptions():
+            wrapper = tools.create_tool_handler_wrapper(tool_desc.name, steam_handler)
+            add_tool_handler(wrapper)
+            content_tools_loaded += 1
+        logger.info("✅ Steam tools loaded successfully")
+    except Exception as e:
+        content_tools_failed.append(f"Steam tools: {str(e)}")
+        logger.warning(f"⚠️  Steam tools not available: {e}")
 
     if content_tools_loaded > 0:
         logger.info(f"✅ Loaded {content_tools_loaded} content management tool groups")

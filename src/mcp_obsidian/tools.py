@@ -629,6 +629,17 @@ time-completed:
             )
         ]
 
+def _normalize_folder_path(folder: str) -> str:
+    """Normalize a folder path by trimming whitespace and trailing slashes."""
+    if not folder:
+        return ""
+    normalized = folder.strip()
+    while normalized.endswith("/"):
+        normalized = normalized[:-1]
+        normalized = normalized.rstrip()
+    return normalized
+
+
 def _stringify_property_value(value: Any) -> str:
     """Convert a frontmatter value into a readable string."""
     if isinstance(value, list):
@@ -647,7 +658,8 @@ def _stringify_property_value(value: Any) -> str:
 
 def _gather_property_statistics(api: obsidian.Obsidian, folder: str) -> tuple[dict[str, Any], int]:
     """Collect property usage, sample values, and example files for a folder."""
-    from_clause = f'"{folder}"' if folder else '""'
+    normalized_folder = _normalize_folder_path(folder)
+    from_clause = f'"{normalized_folder}"' if normalized_folder else '""'
     query = f'TABLE file.frontmatter FROM {from_clause} WHERE file.frontmatter'
     result = api.execute_dataview_query(query, format="json")
 
@@ -730,7 +742,8 @@ class SuggestColumnsToolHandler(ToolHandler):
         api_key, host, port = get_obsidian_config()
         api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
 
-        folder = args.get("folder", "")
+        raw_folder = args.get("folder", "")
+        folder = _normalize_folder_path(raw_folder)
         property_filter = args.get("property_filter", "").strip()
         value_filter = args.get("value_filter", "").strip()
         max_properties = args.get("max_properties", 40)
@@ -860,7 +873,8 @@ class GetPropertyValuesToolHandler(ToolHandler):
         api = obsidian.Obsidian(api_key=api_key, host=host, port=port)
 
         property_name = args["property_name"]
-        folder = args.get("folder", "")
+        raw_folder = args.get("folder", "")
+        folder = _normalize_folder_path(raw_folder)
         max_values = args.get("max_values", 20)
 
         if not isinstance(max_values, int) or max_values < 1:

@@ -29,6 +29,7 @@ try:
     from .game_tools import GameToolHandler
     from .book_tools import BookToolHandler
     from .github_tools import GitHubToolHandler
+    from .steam_tools import SteamToolHandler
 
     __all__ = [
         'ToolHandler',
@@ -36,6 +37,7 @@ try:
         'GameToolHandler',
         'BookToolHandler',
         'GitHubToolHandler',
+        'SteamToolHandler',
     ]
 except ImportError as e:
     # This can happen if dependencies are missing
