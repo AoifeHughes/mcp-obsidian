@@ -135,6 +135,70 @@ For game, book, and GitHub integration features, create a `Keys/api_keys.json` f
 
 See `Keys/README.md` in your vault for detailed setup instructions.
 
+## Running as HTTP Server
+
+The MCP Obsidian server can run as an HTTP server with Server-Sent Events (SSE) transport, allowing web-based clients and remote access.
+
+### Quick Start
+
+```bash
+# Install dependencies
+uv sync
+
+# Run the HTTP server
+uv run mcp-obsidian-http
+
+# Or run as a module
+python -m mcp_obsidian.serve_http
+```
+
+The server will start at `http://127.0.0.1:8000` by default.
+
+### Configuration
+
+Configure the HTTP server using environment variables:
+
+```bash
+# Server configuration
+export MCP_HTTP_HOST=127.0.0.1  # Host to bind to (default: 127.0.0.1)
+export MCP_HTTP_PORT=8000       # Port to bind to (default: 8000)
+
+# Obsidian configuration (same as stdio mode)
+export OBSIDIAN_API_KEY=your_api_key_here
+export OBSIDIAN_HOST=127.0.0.1
+export OBSIDIAN_PORT=27124
+
+# Run the server
+uv run mcp-obsidian-http
+```
+
+Or use a `.env` file in the project directory:
+
+```
+MCP_HTTP_HOST=127.0.0.1
+MCP_HTTP_PORT=8000
+OBSIDIAN_API_KEY=your_api_key_here
+OBSIDIAN_HOST=127.0.0.1
+OBSIDIAN_PORT=27124
+```
+
+### Endpoints
+
+- **Health Check**: `GET http://127.0.0.1:8000/health` - Returns server health status
+- **SSE Endpoint**: `GET http://127.0.0.1:8000/sse` - Server-Sent Events connection
+- **Messages**: `POST http://127.0.0.1:8000/messages` - MCP message endpoint
+
+### Usage with MCP Clients
+
+Connect your MCP client to the SSE endpoint:
+
+```typescript
+const client = new MCPClient({
+  transport: 'sse',
+  url: 'http://127.0.0.1:8000/sse'
+});
+```
+
 ## Quickstart
 
 ### Install
