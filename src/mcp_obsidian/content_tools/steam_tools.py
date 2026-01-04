@@ -106,7 +106,7 @@ class SteamToolHandler:
                             "description": "Maximum number of games to import in this batch (default: 20)",
                             "default": 20,
                             "minimum": 1,
-                            "maximum": 100
+                            "maximum": 1000
                         },
                         "dry_run": {
                             "type": "boolean",
